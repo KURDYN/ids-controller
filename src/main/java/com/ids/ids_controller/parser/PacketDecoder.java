@@ -1,9 +1,6 @@
 package com.ids.ids_controller.parser;
 
-import org.pcap4j.packet.EthernetPacket;
-import org.pcap4j.packet.IpV4Packet;
-import org.pcap4j.packet.Packet;
-import org.pcap4j.packet.TcpPacket;
+import org.pcap4j.packet.*;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -30,6 +27,9 @@ public class PacketDecoder {
     }
 
     private void analyzePacket(Packet packet) {
+        if (packet.contains(IcmpV4CommonPacket.class)) {
+            log.info("[ICMP] Przechwycono PING!");
+        }
         // 1. Sprawdzamy czy wewnątrz ramki Ethernet jest pakiet IPv4
         if (packet.contains(IpV4Packet.class)) {
             IpV4Packet ipV4Packet = packet.get(IpV4Packet.class);

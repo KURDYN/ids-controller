@@ -21,38 +21,43 @@ public class PacketDecoder {
     public void decode(byte[] data) {
         if (data == null || data.length < 14) return;
 
-        try {
-            // Sprawdzenie czy to nie jest nagłówek pliku PCAP (zaczyna się od 0xa1b2c3d4 lub 0xd4c3b2a1)
-            // Jeśli tak, ignorujemy te 24 bajty i szukamy dalej
-            int offset = 0;
-            if (data.length >= 24 && (data[0] == (byte)0xa1 && data[1] == (byte)0xb2 || data[0] == (byte)0xd4)) {
-                log.info("Wykryto nagłówek globalny PCAP - pomijam 24 bajty");
-                offset = 24;
-            }
+        int offset = 0;
 
-            // Próbujemy wyłuskać pakiet.
-            // W strumieniu PCAP przed każdym pakietem jest 16 bajtów nagłówka rekordu (timestamp itp.)
-            // Jeśli Twoja sonda wysyła surowe ramki, offset będzie 0.
-            // Jeśli wysyła strumień PCAP, musimy przeskoczyć nagłówek rekordu.
+        // 1. Obsługa nagłówka globalnego (tylko na starcie strumienia)
+        if (data.length >= 24 && (data[0] == (byte)0xa1 && data[1] == (byte)0xb2 || data[0] == (byte)0xd4)) {
+            log.info("Pomijam nagłówek globalny PCAP");
+            offset = 24;
+        }
 
-            // Spróbujmy dekodować od różnych offsetów, aż trafimy w ramkę Ethernet
-            Packet packet = null;
+        // 2. Pętla - czytaj dopóki w buforze są dane
+        while (offset + 16 < data.length) {
             try {
-                packet = EthernetPacket.newPacket(data, offset, data.length - offset);
-            } catch (Exception e) {
-                // Jeśli nie Ethernet, spróbuj przesunąć o 16 bajtów (nagłówek pakietu PCAP)
-                if (data.length > offset + 16) {
-                    packet = EthernetPacket.newPacket(data, offset + 16, data.length - offset - 16);
+                // W formacie PCAP nagłówek rekordu (16 bajtów) ma długość pakietu na pozycjach 8-12 (Little Endian)
+                // Pobieramy długość zapisaną w nagłówku PCAP, aby wiedzieć ile bajtów wyciąć
+                int packetLen = ((data[offset + 11] & 0xff) << 24) |
+                        ((data[offset + 10] & 0xff) << 16) |
+                        ((data[offset + 9] & 0xff) << 8) |
+                        (data[offset + 8] & 0xff);
+
+                if (packetLen <= 0 || offset + 16 + packetLen > data.length) {
+                    // Jeśli długość jest nierealna lub wychodzi poza bufor - szukamy następnej ramki Ethernet
+                    offset++;
+                    continue;
                 }
-            }
 
-            if (packet != null) {
+                // Wycinamy surową ramkę Ethernet
+                byte[] ethernetRaw = new byte[packetLen];
+                System.arraycopy(data, offset + 16, ethernetRaw, 0, packetLen);
+
+                Packet packet = EthernetPacket.newPacket(ethernetRaw, 0, ethernetRaw.length);
                 analyzePacket(packet);
-            }
 
-        } catch (Exception e) {
-            // Cichy debug, żeby nie spamować
-            log.debug("Nie udało się zinterpretować fragmentu danych: {}", e.getMessage());
+                // Przesuwamy offset o nagłówek (16) + dane pakietu
+                offset += 16 + packetLen;
+
+            } catch (Exception e) {
+                offset++; // W razie błędu przesuń o 1 bajt i próbuj dalej
+            }
         }
     }
 

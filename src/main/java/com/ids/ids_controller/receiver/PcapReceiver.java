@@ -28,7 +28,7 @@ public class PcapReceiver {
                             .asByteArray()
                             .doOnNext(data -> {
                                 // Tutaj wpadają surowe bajty pcap
-                                //log.debug("Odebrano paczkę danych: {} bajtów", data.length);
+                                log.debug("Odebrano paczkę danych: {} bajtów", data.length);
                                 packetDecoder.decode(data);
                             })
                             .doOnTerminate(() -> log.info("Połączenie z sondą przerwane."))

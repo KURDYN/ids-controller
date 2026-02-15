@@ -25,8 +25,7 @@ public class PacketDecoder {
 
         } catch (Exception e) {
             // Logujemy błąd, ale nie zatrzymujemy aplikacji
-            log.warn("Błąd dekodowania ramki: {}. Rozmiar danych: {} bajtów",
-                    e.getMessage(), data.length);
+            //log.warn("Błąd dekodowania ramki: {}. Rozmiar danych: {} bajtów", e.getMessage(), data.length);
         }
     }
 

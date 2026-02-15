@@ -1,11 +1,19 @@
 package com.ids.ids_controller.parser;
 
+import com.ids.ids_controller.service.FeatureExtractor;
 import org.pcap4j.packet.*;
 import org.springframework.stereotype.Component;
 
 @Component
 public class PacketDecoder {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(PacketDecoder.class);
+
+    private final FeatureExtractor featureExtractor;
+
+    public PacketDecoder(FeatureExtractor featureExtractor) {
+        this.featureExtractor = featureExtractor;
+    }
+
     /**
      * Główna metoda dekodująca surowe bajty na obiekty Pcap4j.
      * @param data tablica bajtów otrzymana z sieci (PcapReceiver)
@@ -49,31 +57,6 @@ public class PacketDecoder {
     }
 
     private void analyzePacket(Packet packet) {
-        if (packet.contains(IcmpV4CommonPacket.class)) {
-            log.info("[ICMP] Przechwycono PING!");
-        }
-        // 1. Sprawdzamy czy wewnątrz ramki Ethernet jest pakiet IPv4
-        if (packet.contains(IpV4Packet.class)) {
-            IpV4Packet ipV4Packet = packet.get(IpV4Packet.class);
-            String srcAddr = ipV4Packet.getHeader().getSrcAddr().getHostAddress();
-            String dstAddr = ipV4Packet.getHeader().getDstAddr().getHostAddress();
-
-            // 2. Jeśli to ruch TCP, wyciągamy szczegóły (porty, flagi)
-            if (packet.contains(TcpPacket.class)) {
-                TcpPacket tcpPacket = packet.get(TcpPacket.class);
-                int srcPort = tcpPacket.getHeader().getSrcPort().valueAsInt();
-                int dstPort = tcpPacket.getHeader().getDstPort().valueAsInt();
-
-                // Sprawdzenie flagi SYN (kluczowe dla wykrywania skanowania portów)
-                boolean isSyn = tcpPacket.getHeader().getSyn();
-
-                log.info("[TCP] {}:{} -> {}:{} [SYN: {}]",
-                        srcAddr, srcPort, dstAddr, dstPort, isSyn);
-            }
-            // 3. Opcjonalnie: obsługa innych protokołów (np. UDP, ICMP)
-            else {
-                log.debug("[IP] {} -> {} (Inny protokół)", srcAddr, dstAddr);
-            }
-        }
+        featureExtractor.extract(packet);
     }
 }

@@ -17,6 +17,8 @@ public class PacketDecoder {
     // Flaga określająca kolejność bajtów dla aktualnie przetwarzanego strumienia
     private boolean isBigEndian = false;
 
+    private byte[] remainder = null;
+
     // Wstrzyknięcie serwisu ekstraktora cech przez konstruktor
     public PacketDecoder(FeatureExtractor featureExtractor) {
         this.featureExtractor = featureExtractor;
@@ -26,8 +28,18 @@ public class PacketDecoder {
      * główna metoda dekodująca surowe bajty odebrane z sieci.
      * obsługuje format strumienia PCAP (Global Header + Packet Records).
      */
-    public void decode(byte[] data) {
+    public synchronized void decode(byte[] incomingData) {
         // Minimalna ramka Ethernet to 14 bajtów (MAC src, MAC dst, EtherType)
+        byte[] data;
+        if (remainder != null) {
+            data = new byte[remainder.length + incomingData.length];
+            System.arraycopy(remainder, 0, data, 0, remainder.length);
+            System.arraycopy(incomingData, 0, data, remainder.length, incomingData.length);
+            remainder = null;
+        } else {
+            data = incomingData;
+        }
+
         if (data == null || data.length < 14) return;
 
         int offset = 0;
@@ -83,18 +95,26 @@ public class PacketDecoder {
                 }
 
                 // Walidacja: czy odczytana długość ma sens i czy pakiet mieści się w tablicy
-                if (packetLen <= 0 || offset + 16 + packetLen > data.length) {
-                    offset++; // Jeśli dane są niespójne, przesuń o 1 bajt i szukaj dalej
+                if (packetLen <= 0) {
+                    offset++;
                     continue;
                 }
 
-                // Kopiujemy tylko czyste dane ramki Ethernet (pomijając 16 bajtów nagłówka rekordu)
-                byte[] ethernetRaw = new byte[packetLen];
-                System.arraycopy(data, offset + 16, ethernetRaw, 0, packetLen);
+                if (offset + 16 + packetLen > data.length) {
+                    // Pakiet jest ucięty - kończymy przetwarzanie tego bufora i wychodzimy do sekcji remainder
+                    break;
+                }
 
-                // Fabryka Pcap4j tworzy obiektowy model pakietu z surowych bajtów
-                Packet packet = EthernetPacket.newPacket(ethernetRaw, 0, ethernetRaw.length);
-                analyzePacket(packet);
+                try {
+                    // Kopiujemy tylko czyste dane ramki Ethernet (pomijając 16 bajtów nagłówka rekordu)
+                    byte[] ethernetRaw = new byte[packetLen];
+                    System.arraycopy(data, offset + 16, ethernetRaw, 0, packetLen);
+                    // Fabryka Pcap4j tworzy obiektowy model pakietu z surowych bajtów
+                    Packet packet = EthernetPacket.newPacket(ethernetRaw, 0, ethernetRaw.length);
+                    featureExtractor.extract(packet);
+                } catch (Exception e) {
+                    log.error("Błąd parsowania pakietu na offset {}: {}", offset, e.getMessage());
+                }
 
                 // Przesuwamy offset o cały przetworzony rekord (nagłówek 16B + dane pakietu)
                 offset += 16 + packetLen;
@@ -104,12 +124,9 @@ public class PacketDecoder {
                 offset++;
             }
         }
-    }
-
-    /**
-     * Przekazuje poprawnie zdekodowany pakiet do warstwy analizy logicznej.
-     */
-    private void analyzePacket(Packet packet) {
-        featureExtractor.extract(packet);
+        if (offset < data.length) {
+            remainder = new byte[data.length - offset];
+            System.arraycopy(data, offset, remainder, 0, remainder.length);
+        }
     }
 }

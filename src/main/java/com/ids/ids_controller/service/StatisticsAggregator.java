@@ -9,35 +9,49 @@ import org.springframework.stereotype.Service;
 import java.util.Map;
 
 @Service
-@EnableScheduling // Włącza obsługę harmonogramu zadań
+@EnableScheduling // włączenie schedulingu
 public class StatisticsAggregator {
     private static final Logger log = LoggerFactory.getLogger(StatisticsAggregator.class);
 
     private final FeatureExtractor featureExtractor;
+    private final BaselineService baselineService;
 
-    public StatisticsAggregator(FeatureExtractor featureExtractor) {
+    public StatisticsAggregator(FeatureExtractor featureExtractor, BaselineService baselineService) {
         this.featureExtractor = featureExtractor;
+        this.baselineService = baselineService;
     }
 
-    // Wykonuj co 1000ms (1 sekunda)
     @Scheduled(fixedRate = 1000)
-    public void aggregateAndLog() {
-        int synsLastSecond = featureExtractor.getAndResetSynCount();
-        int icmpsLastSecond = featureExtractor.getAndResetIcmpCount();
-        int sshLastSecond = featureExtractor.getAndResetSshAttempts();
+    public void aggregateAndAnalyze() {
+        // 1. Pobranie surowych danych i reset liczników w FeatureExtractor
+        int syns = featureExtractor.getAndResetSynCount();
+        int icmps = featureExtractor.getAndResetIcmpCount();
+        double avgPacketSize = featureExtractor.getAvgPacketSize();
+        double asymmetry = featureExtractor.getTrafficAsymmetry();
+        int flows = featureExtractor.getActiveFlowsCount();
         Map<String, Integer> portVariety = featureExtractor.getAndResetPortVariety();
 
-        log.info("--- RAPORT SEKUNDOWY ---");
-        log.info("TCP SYN Rate: {} pkt/s", synsLastSecond);
-        log.info("ICMP Rate:    {} pkt/s", icmpsLastSecond);
-        log.info("SSH PSH Rate: {} pkt/s", sshLastSecond);
+        // Resetujemy FeatureExtractor na koniec zbierania danych
+        featureExtractor.resetAll();
 
-        if (!portVariety.isEmpty()) {
-            portVariety.forEach((ip, count) ->
-                    log.info("Scanner Alert: IP {} dotknęło {} unikalnych portów", ip, count)
-            );
+        log.info("--- NETWORK SNAPSHOT ---");
+        log.info("Liczników SYN:   {} pkt/s", syns);
+        log.info("Liczników ICMP:  {} pkt/s", icmps);
+        log.info("Śr. rozm. pkt:   {} bytes", String.format("%.2f", avgPacketSize));
+        log.info("Asymetria (I/O): {}", String.format("%.2f", asymmetry));
+        log.info("Aktywne Flowy:   {}", flows);
+        long seriousScanners = portVariety.entrySet().stream()
+                .filter(e -> e.getValue() > 1)
+                .peek(e -> log.warn("Possible Scanner: IP {} touched {} unique ports", e.getKey(), e.getValue()))
+                .count();
+        int randomIpCount = portVariety.size();
+        if (randomIpCount > 100) {
+            log.warn("DETECTED: High volume of unique source IPs ({}) - possible Distributed Attack!", randomIpCount);
         }
         log.info("------------------------");
 
+        int minuteOfDay = java.time.LocalTime.now().get(java.time.temporal.ChronoField.MINUTE_OF_DAY);
+
+        // TODO 3. Obliczanie odchyleń dla każdej cechy
     }
 }

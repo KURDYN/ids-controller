@@ -20,44 +20,62 @@ import org.slf4j.LoggerFactory;
 public class FeatureExtractor {
     private static final Logger log = LoggerFactory.getLogger(FeatureExtractor.class);
 
+    private final LongAdder inboundBytes = new LongAdder();
+    private final LongAdder outboundBytes = new LongAdder();
+    private final LongAdder totalPacketCount = new LongAdder();
+    private final LongAdder totalPayloadSize = new LongAdder();
+    private final Set<String> activeFlows = ConcurrentHashMap.newKeySet();
+
     // statystyki podstawowe
     private final AtomicInteger synCount = new AtomicInteger(0);
     private final AtomicInteger icmpCount = new AtomicInteger(0);
+    private final Map<String, Set<Integer>> portVarietyMap = new ConcurrentHashMap<>();
 
-    // statystyki szczegółowe dla konkretnych ataków
-    private final Map<String, Set<Integer>> portVarietyMap = new ConcurrentHashMap<>(); // NMAP: IP -> unikalne porty
-    private final AtomicInteger sshAttemptCount = new AtomicInteger(0); // Brute-force na porcie 22
-    private final LongAdder totalBytes = new LongAdder();
+    private final String PROTECTED_IP = "172.18.0.3"; // adres ofiary z którego można pobierać pliki
 
     public void extract(Packet packet) {
         if (isTrafficToController(packet)) return;
 
-        totalBytes.add(packet.length());
+        int packetSize = packet.length();
+        totalPacketCount.increment();
+        totalPayloadSize.add(packetSize);
+
+        String srcIp = "";
+        String dstIp = "";
+
+        if (packet.contains(IpV4Packet.class)) {
+            IpV4Packet ipPkt = packet.get(IpV4Packet.class);
+            srcIp = ipPkt.getHeader().getSrcAddr().getHostAddress();
+            dstIp = ipPkt.getHeader().getDstAddr().getHostAddress();
+
+            // Kierunek ruchu
+            if (dstIp.equals(PROTECTED_IP)) {
+                inboundBytes.add(packetSize);
+            } else if (srcIp.equals(PROTECTED_IP)) {
+                outboundBytes.add(packetSize);
+            }
+
+            // Unikalne przepływy (Flows)
+            activeFlows.add(srcIp + "->" + dstIp);
+        }
 
         if (packet.contains(TcpPacket.class)) {
             TcpPacket tcp = packet.get(TcpPacket.class);
             int dstPort = tcp.getHeader().getDstPort().valueAsInt();
 
-            // Atak: DoS/SYN Flood
+            // SYN Flood
             if (tcp.getHeader().getSyn() && !tcp.getHeader().getAck()) {
                 synCount.incrementAndGet();
             }
 
-            // Atak: NMAP/Scanning (agregacja unikalnych portów na IP)
-            if (packet.contains(IpV4Packet.class)) {
-                String srcIp = packet.get(IpV4Packet.class).getHeader().getSrcAddr().getHostAddress();
+            // NMAP / Entropia Portów
+            if (!srcIp.isEmpty()) {
                 portVarietyMap.computeIfAbsent(srcIp, k -> ConcurrentHashMap.newKeySet()).add(dstPort);
-            }
-
-            // Atak: SSH Brute-Force (port 22 + flaga PSH/ACK sugerująca próbę logowania)
-            if (dstPort == 22 && tcp.getHeader().getPsh()) {
-                sshAttemptCount.incrementAndGet();
             }
         }
 
         if (packet.contains(IcmpV4CommonPacket.class)) {
             IcmpV4CommonPacket icmp = packet.get(IcmpV4CommonPacket.class);
-            // tylko Echo Request (Typ 8), ignorujemy odpowiedzi
             if (icmp.getHeader().getType().value() == (byte) 8) {
                 icmpCount.incrementAndGet();
             }
@@ -74,12 +92,38 @@ public class FeatureExtractor {
     // Metody eksportujące dane do Agregatora Statystyk
     public int getAndResetSynCount() { return synCount.getAndSet(0); }
     public int getAndResetIcmpCount() { return icmpCount.getAndSet(0); }
-    public int getAndResetSshAttempts() { return sshAttemptCount.getAndSet(0); }
+    public double getAvgPacketSize() {
+        long count = totalPacketCount.sum();
+        return count == 0 ? 0 : (double) totalPayloadSize.sum() / count;
+    }
+
+    public double getTrafficAsymmetry() {
+        double in = inboundBytes.sum();
+        double out = outboundBytes.sum();
+        if (out == 0) return in; // Unikamy dzielenia przez zero
+        return in / out; // > 1 ruch przychodzący dominuje (DDoS), < 1 wychodzący (Exfiltration)
+    }
+
+    public int getActiveFlowsCount() {
+        return activeFlows.size();
+    }
 
     public Map<String, Integer> getAndResetPortVariety() {
         Map<String, Integer> result = new HashMap<>();
         portVarietyMap.forEach((ip, ports) -> result.put(ip, ports.size()));
         portVarietyMap.clear();
         return result;
+    }
+
+    // Resetowanie statystyk po zebraniu przez Agregator
+    public void resetAll() {
+        synCount.set(0);
+        icmpCount.set(0);
+        totalPacketCount.reset();
+        totalPayloadSize.reset();
+        inboundBytes.reset();
+        outboundBytes.reset();
+        portVarietyMap.clear();
+        activeFlows.clear();
     }
 }

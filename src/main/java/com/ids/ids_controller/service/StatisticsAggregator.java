@@ -41,14 +41,17 @@ public class StatisticsAggregator {
     }
 
     private NetworkSnapshot captureSnapshot() {
-        // pobieranie danych z FeatureExtractor + reset
+        int syns = featureExtractor.getAndResetSynCount();
+        int icmps = featureExtractor.getAndResetIcmpCount();
+        double avgSize = featureExtractor.getAvgPacketSize();
+        double asymmetry = featureExtractor.getTrafficAsymmetry();
+        int flows = featureExtractor.getActiveFlowsCount();
+
+        Map<String, Integer> portMap = featureExtractor.getAndResetPortVariety();
+        int globalPortDiversity = portMap.values().stream().mapToInt(Integer::intValue).sum();
+
         NetworkSnapshot snapshot = new NetworkSnapshot(
-                featureExtractor.getAndResetSynCount(),
-                featureExtractor.getAndResetIcmpCount(),
-                featureExtractor.getAvgPacketSize(),
-                featureExtractor.getTrafficAsymmetry(),
-                featureExtractor.getActiveFlowsCount(),
-                featureExtractor.getAndResetPortVariety()
+                syns, icmps, avgSize, asymmetry, flows, globalPortDiversity
         );
 
         featureExtractor.resetAll();
@@ -58,21 +61,19 @@ public class StatisticsAggregator {
 
     private void logSnapshot(NetworkSnapshot s) {
         log.info("--- NETWORK SNAPSHOT (REACTIVE) ---");
-        log.info("Liczników SYN:   {} pkt/s", s.syns());
-        log.info("Liczników ICMP:  {} pkt/s", s.icmps());
-        log.info("Śr. rozm. pkt:   {} bytes", String.format("%.2f", s.avgPacketSize()));
-        log.info("Asymetria (I/O): {}", String.format("%.2f", s.asymmetry()));
-        log.info("Aktywne Flowy:   {}", s.flows());
-
-        long seriousScanners = s.portVariety().entrySet().stream()
-                .filter(e -> e.getValue() > 1)
-                .peek(e -> log.warn("Possible Scanner: IP {} touched {} unique ports", e.getKey(), e.getValue()))
-                .count();
-
-        if (s.portVariety().size() > 100) {
-            log.warn("DETECTED: High volume of unique source IPs ({}) - possible Distributed Attack!", s.portVariety().size());
-        }
+        log.info("Liczników SYN:   {} pkt/s,     Z: {}", s.syns(), baselineService.calculateZScore("SYNS_PER_SEC", s.syns));
+        log.info("Liczników ICMP:  {} pkt/s,     Z: {}", s.icmps(), baselineService.calculateZScore("ICMPS_PER_SEC", s.icmps));
+        log.info("Śr. rozm. pkt:   {} bytes,     Z: {}", String.format("%.2f", s.avgPacketSize()), baselineService.calculateZScore("AVG_PACKET_SIZE", s.avgPacketSize));
+        log.info("Asymetria (I/O): {},           Z: {}", String.format("%.2f", s.asymmetry()), baselineService.calculateZScore("TRAFFIC_ASYMMETRY", s.asymmetry));
+        log.info("Aktywne Flowy:   {},           Z: {}", s.flows(), baselineService.calculateZScore("ACTIVE_FLOWS", s.flows));
+        log.info("Ilość unikalnych portów:   {}, Z: {}", s.portDiversity, baselineService.calculateZScore("GLOBAL_PORT_DIVERSITY", s.portDiversity));
         log.info("------------------------------------");
+        baselineService.addObservation("SYNS_PER_SEC", s.syns);
+        baselineService.addObservation("ICMPS_PER_SEC", s.icmps);
+        baselineService.addObservation("AVG_PACKET_SIZE", s.avgPacketSize);
+        baselineService.addObservation("TRAFFIC_ASYMMETRY", s.asymmetry);
+        baselineService.addObservation("ACTIVE_FLOWS", s.flows);
+        baselineService.addObservation("GLOBAL_PORT_DIVERSITY", s.portDiversity);
     }
 
     @PreDestroy
@@ -89,6 +90,6 @@ public class StatisticsAggregator {
             double avgPacketSize,
             double asymmetry,
             int flows,
-            Map<String, Integer> portVariety
+            int portDiversity
     ) {}
 }

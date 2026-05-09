@@ -10,7 +10,7 @@ public class FuzzyService {
 
     public FuzzyService() {
         // Wczytanie pliku FCL z zasobów
-        String fileName = "network_anomaly.fcl";
+        String fileName = "anomaly_finder.fcl";
         this.fis = FIS.load(getClass().getClassLoader().getResourceAsStream(fileName), true);
 
         if (fis == null) {

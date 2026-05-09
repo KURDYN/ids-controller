@@ -62,16 +62,24 @@ public class StatisticsAggregator {
     }
 
     private void logSnapshot(NetworkSnapshot s) {
+        Double zSyn = baselineService.calculateZScore("SYNS_PER_SEC", s.syns);
+        Double zIcmp = baselineService.calculateZScore("ICMPS_PER_SEC", s.icmps);
+        Double zAvgSize = baselineService.calculateZScore("AVG_PACKET_SIZE", s.avgPacketSize);
+        Double zAsym = baselineService.calculateZScore("TRAFFIC_ASYMMETRY", s.asymmetry);
+        Double zFlows = baselineService.calculateZScore("ACTIVE_FLOWS", s.flows);
+        Double zPortVar = baselineService.calculateZScore("GLOBAL_PORT_DIVERSITY", s.portDiversity);
+
+
         log.info("--- NETWORK SNAPSHOT (REACTIVE) ---");
-        log.info("Liczników SYN:   {} pkt/s,     Z: {}", s.syns(), baselineService.calculateZScore("SYNS_PER_SEC", s.syns));
-        log.info("Liczników ICMP:  {} pkt/s,     Z: {}", s.icmps(), baselineService.calculateZScore("ICMPS_PER_SEC", s.icmps));
-        log.info("Śr. rozm. pkt:   {} bytes,     Z: {}", String.format("%.2f", s.avgPacketSize()), baselineService.calculateZScore("AVG_PACKET_SIZE", s.avgPacketSize));
-        log.info("Asymetria (I/O): {},           Z: {}", String.format("%.2f", s.asymmetry()), baselineService.calculateZScore("TRAFFIC_ASYMMETRY", s.asymmetry));
-        log.info("Aktywne Flowy:   {},           Z: {}", s.flows(), baselineService.calculateZScore("ACTIVE_FLOWS", s.flows));
-        log.info("Ilość unikalnych portów:   {}, Z: {}", s.portDiversity, baselineService.calculateZScore("GLOBAL_PORT_DIVERSITY", s.portDiversity));
+        log.info("Liczników SYN:   {} pkt/s,     Z: {}", s.syns(), zSyn);
+        log.info("Liczników ICMP:  {} pkt/s,     Z: {}", s.icmps(), zIcmp);
+        log.info("Śr. rozm. pkt:   {} bytes,     Z: {}", String.format("%.2f", s.avgPacketSize()), zAvgSize);
+        log.info("Asymetria (I/O): {},           Z: {}", String.format("%.2f", s.asymmetry()), zAsym);
+        log.info("Aktywne Flowy:   {},           Z: {}", s.flows(), zFlows);
+        log.info("Ilość unikalnych portów:   {}, Z: {}", s.portDiversity, zPortVar);
         log.info("------------------------------------");
 
-        double anomalyProbability = fuzzyService.analyze(s.syns, s.icmps, s.avgPacketSize, s.asymmetry, s.flows, s.portDiversity);
+        double anomalyProbability = fuzzyService.analyze(zSyn, zIcmp, zAvgSize, zAsym, zFlows, zPortVar);
 
         log.info("--- ANALIZA ZAGROŻEŃ ---");
         log.info("Prawdopodobieństwo anomalii: {}%", String.format("%.2f", anomalyProbability));

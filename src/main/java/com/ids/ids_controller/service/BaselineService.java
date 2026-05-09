@@ -23,13 +23,13 @@ public class BaselineService {
 
     private final Map<String, BaselineStats> currentStats = new ConcurrentHashMap<>();;
 
-    public void addObservation(String featureName, double value) {
+    public void addObservation(String featureName, double value, double anomalyProbability) {
         BaselineStats stats = currentStats.computeIfAbsent(featureName, k -> new BaselineStats());
 
         // OBLICZAMY Z-SCORE ZANIM DODAMY DANE
         double z = calculateZScore(featureName, value);
 
-        if (Math.abs(z) > 5.0 && stats.getCount() > 100) {
+        if (anomalyProbability > 70.0 && stats.getCount() > 100) {
             log.warn("Pominięto aktualizację baseline dla {} - wykryto silną anomalię (Z={})", featureName, z);
             return;
         }

@@ -66,32 +66,31 @@ RULEBLOCK No1
     ACT : MIN;
     ACCU : MAX;
 
-    // 1. Detekcja SYN Flood (Wysoki SYN + Wysoka Asymetria + Wysokie Flowy)
-    RULE 1 : IF z_syns IS high AND z_asymmetry IS high AND z_flows IS high
+    // 1. Detekcja SYN Flood (Zmieniono na OR dla większej czułości)
+    RULE 1 : IF z_syns IS high OR (z_asymmetry IS high AND z_flows IS high)
                 THEN anomaly_probability IS critical;
 
-    // 2. Detekcja Port Scanning (Wysoka dywersyfikacja portów)
+    // 2. Detekcja Port Scanning
     RULE 2 : IF z_ports IS high
                 THEN anomaly_probability IS danger;
 
-    // 3. Detekcja ICMP Flood / Ping of Death
-    RULE 3 : IF z_icmps IS high AND z_asymmetry IS high
-                THEN anomaly_probability IS danger;
+    // 3. Detekcja ICMP Flood (Teraz zadziała nawet przy braku asymetrii!)
+    RULE 3 : IF z_icmps IS high THEN anomaly_probability IS danger;
 
-    // 4. Detekcja Exfiltracji / Tunelowania (Abnormalny rozmiar pakietu + Asymetria)
+    // 4. Detekcja Exfiltracji
     RULE 4 : IF z_avg_size IS abnormal AND z_asymmetry IS high
                 THEN anomaly_probability IS suspicious;
 
-    // 5. Podejrzane skanowanie horyzontalne (Medium porty + Wzrost flowów)
-    RULE 5 : IF z_ports IS medium AND z_flows IS high
+    // 5. Podejrzany wzrost przepływów (Sam wzrost flowów to już anomalia)
+    RULE 5 : IF z_flows IS high OR (z_ports IS medium AND z_flows IS high)
                 THEN anomaly_probability IS suspicious;
 
-    // 6. Ogólny stan bezpieczeństwa (Wszystko w normie)
+    // 6. Ogólny stan bezpieczeństwa
     RULE 6 : IF z_syns IS low AND z_ports IS low AND z_icmps IS low AND z_flows IS normal
                 THEN anomaly_probability IS safe;
 
-    // 7. Agresywny atak hybrydowy (Wiele parametrów podwyższonych)
-    RULE 7 : IF z_syns IS medium AND z_ports IS medium AND z_icmps IS high
+    // 7. Agresywny atak hybrydowy
+    RULE 7 : IF z_syns IS medium OR z_ports IS medium OR z_icmps IS high
                 THEN anomaly_probability IS critical;
 
 END_RULEBLOCK

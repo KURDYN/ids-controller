@@ -45,7 +45,7 @@
         probText.innerText = `Prawdopodobieństwo: ${prob.toFixed(2)}%`;
         bar.style.width = prob + '%';
 
-        if (prob > 70) {
+        if (prob > 60) {
             bar.className = 'progress-bar bg-danger progress-bar-striped progress-bar-animated';
             statusBadge.className = 'badge bg-danger';
             statusBadge.innerText = 'ATTACK DETECTED';

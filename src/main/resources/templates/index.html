@@ -12,16 +12,20 @@
 <div class="container py-5">
     <h1 class="mb-4">IDS Real-Time Monitor</h1>
 
-    <div class="row" id="metrics-container">
-        <!-- Tutaj JS wstrzyknie karty statystyk -->
+    <!-- Główny panel stanu -->
+    <div class="card mb-4 shadow-sm border-0">
+        <div id="status-card-body" class="card-body">
+            <h5 class="card-title">Status Systemu: <span id="status-badge" class="badge bg-success">LEARNING</span></h5>
+            <p id="probability-text" class="h3 fw-bold">0.00%</p>
+            <div class="progress" style="height: 25px;">
+                <div id="prob-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+            </div>
+        </div>
     </div>
 
-    <div class="mt-4 p-3 border rounded bg-white shadow-sm">
-        <h5>Status Systemu: <span id="status-badge" class="badge bg-success">LEARNING</span></h5>
-        <p id="probability-text">Prawdopodobieństwo anomalii: 0.00%</p>
-        <div class="progress">
-            <div id="prob-bar" class="progress-bar" role="progressbar" style="width: 0%"></div>
-        </div>
+    <!-- Kontener na kafelki Z-Score -->
+    <div class="row" id="metrics-grid">
+        <!-- JS tutaj wstawi kafelki -->
     </div>
 </div>
 
@@ -30,28 +34,63 @@
 
     eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        updateUI(data);
-    };
 
-    function updateUI(data) {
+        // 1. Aktualizacja Głównego Wskaźnika (Anomaly Probability)
         const prob = data.anomalyProbability || 0;
-
-        // Aktualizacja paska prawdopodobieństwa
         const bar = document.getElementById('prob-bar');
-        bar.style.width = prob + '%';
-        bar.className = prob > 70 ? 'progress-bar bg-danger' : 'progress-bar bg-primary';
-        document.getElementById('probability-text').innerText = `Prawdopodobieństwo anomalii: ${prob.toFixed(2)}%`;
-
-        // Aktualizacja statusu blokady uczenia
+        const probText = document.getElementById('probability-text');
         const statusBadge = document.getElementById('status-badge');
+        const statusCard = document.getElementById('status-card-body');
+
+        probText.innerText = `Prawdopodobieństwo: ${prob.toFixed(2)}%`;
+        bar.style.width = prob + '%';
+
         if (prob > 70) {
-            statusBadge.innerText = "ATTACK DETECTED - LOCK";
-            statusBadge.className = "badge bg-danger";
+            bar.className = 'progress-bar bg-danger progress-bar-striped progress-bar-animated';
+            statusBadge.className = 'badge bg-danger';
+            statusBadge.innerText = 'ATTACK DETECTED';
+            statusCard.parentElement.classList.add('border-danger');
         } else {
-            statusBadge.innerText = "LEARNING";
-            statusBadge.className = "badge bg-success";
+            bar.className = 'progress-bar bg-primary';
+            statusBadge.className = 'badge bg-success';
+            statusBadge.innerText = 'MONITORING / LEARNING';
+            statusCard.parentElement.classList.remove('border-danger');
         }
-    }
+
+        // 2. Aktualizacja Kafelków Z-Score
+        const grid = document.getElementById('metrics-grid');
+        let gridHtml = '';
+
+        // Iterujemy po wszystkich kluczach w mapie
+        Object.keys(data).forEach(key => {
+            // Pomijamy prawdopodobieństwo, bo już je wyświetliliśmy wyżej
+            if (key === 'anomalyProbability') return;
+
+            const val = data[key];
+            // Jeśli Z-Score > 3 lub < -3, zaznaczamy na czerwono (anomalia statystyczna)
+            const isAnomaly = Math.abs(val) > 3.0;
+            const alertClass = isAnomaly ? 'border-danger text-danger' : 'border-light';
+            const bgClass = isAnomaly ? 'bg-danger-subtle' : 'bg-white';
+
+            gridHtml += `
+            <div class="col-md-4 col-lg-3 mb-3">
+                <div class="card h-100 shadow-sm ${alertClass} ${bgClass} transition-all">
+                    <div class="card-body text-center p-3">
+                        <div class="text-uppercase text-muted mb-1" style="font-size: 0.7rem; letter-spacing: 1px;">
+                            ${key.replace(/_/g, ' ')}
+                        </div>
+                        <div class="h4 mb-0 fw-bold font-monospace">
+                            ${val.toFixed(3)}
+                        </div>
+                        <small class="text-muted">Z-Score</small>
+                    </div>
+                </div>
+            </div>
+        `;
+        });
+
+        grid.innerHTML = gridHtml;
+    };
 </script>
 </body>
 </html>

@@ -23,6 +23,12 @@ public class StatisticsAggregator {
     private Disposable subscription; // Referencja do subskrypcji, by móc ją zamknąć
 
     public double lastProbability;
+    public double zSyn;
+    public double zIcmp;
+    public double zAvgSize;
+    public double zAsym;
+    public double zFlows;
+    public double zPortVar;
 
     public StatisticsAggregator(FeatureExtractor featureExtractor, BaselineService baselineService, FuzzyService fuzzyService) {
         this.featureExtractor = featureExtractor;
@@ -65,12 +71,12 @@ public class StatisticsAggregator {
     }
 
     private void logSnapshot(NetworkSnapshot s) {
-        double zSyn = baselineService.calculateZScore("SYNS_PER_SEC", s.syns);
-        double zIcmp = baselineService.calculateZScore("ICMPS_PER_SEC", s.icmps);
-        double zAvgSize = baselineService.calculateZScore("AVG_PACKET_SIZE", s.avgPacketSize);
-        double zAsym = baselineService.calculateZScore("TRAFFIC_ASYMMETRY", s.asymmetry);
-        double zFlows = baselineService.calculateZScore("ACTIVE_FLOWS", s.flows);
-        double zPortVar = baselineService.calculateZScore("GLOBAL_PORT_DIVERSITY", s.portDiversity);
+        this.zSyn = baselineService.calculateZScore("SYNS_PER_SEC", s.syns);
+        this.zIcmp = baselineService.calculateZScore("ICMPS_PER_SEC", s.icmps);
+        this.zAvgSize = baselineService.calculateZScore("AVG_PACKET_SIZE", s.avgPacketSize);
+        this.zAsym = baselineService.calculateZScore("TRAFFIC_ASYMMETRY", s.asymmetry);
+        this.zFlows = baselineService.calculateZScore("ACTIVE_FLOWS", s.flows);
+        this.zPortVar = baselineService.calculateZScore("GLOBAL_PORT_DIVERSITY", s.portDiversity);
 
 
         log.info("--- NETWORK SNAPSHOT (REACTIVE) ---");
@@ -101,8 +107,14 @@ public class StatisticsAggregator {
 
     public Map<String, Double> getCurrentMetrics() {
         Map<String, Double> metrics = new HashMap<>();
+        metrics.put("SYNS_PER_SEC", this.zSyn);
+        metrics.put("ICMPS_PER_SEC", this.zIcmp);
+        metrics.put("AVG_PACKET_SIZE", this.zAvgSize);
+        metrics.put("TRAFFIC_ASYMMETRY", this.zAsym);
+        metrics.put("ACTIVE_FLOWS", this.zFlows);
+        metrics.put("GLOBAL_PORT_DIVERSITY", this.zPortVar);
         metrics.put("anomalyProbability", this.lastProbability);
-        // dodaj inne wartości Z-Score, które chcesz widzieć na wykresie
+
         return metrics;
     }
 

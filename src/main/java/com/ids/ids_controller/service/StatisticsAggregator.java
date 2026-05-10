@@ -10,6 +10,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.Map;
 
 @Service
@@ -20,6 +21,8 @@ public class StatisticsAggregator {
     private final BaselineService baselineService;
     private final FuzzyService fuzzyService;
     private Disposable subscription; // Referencja do subskrypcji, by móc ją zamknąć
+
+    public double lastProbability;
 
     public StatisticsAggregator(FeatureExtractor featureExtractor, BaselineService baselineService, FuzzyService fuzzyService) {
         this.featureExtractor = featureExtractor;
@@ -62,12 +65,12 @@ public class StatisticsAggregator {
     }
 
     private void logSnapshot(NetworkSnapshot s) {
-        Double zSyn = baselineService.calculateZScore("SYNS_PER_SEC", s.syns);
-        Double zIcmp = baselineService.calculateZScore("ICMPS_PER_SEC", s.icmps);
-        Double zAvgSize = baselineService.calculateZScore("AVG_PACKET_SIZE", s.avgPacketSize);
-        Double zAsym = baselineService.calculateZScore("TRAFFIC_ASYMMETRY", s.asymmetry);
-        Double zFlows = baselineService.calculateZScore("ACTIVE_FLOWS", s.flows);
-        Double zPortVar = baselineService.calculateZScore("GLOBAL_PORT_DIVERSITY", s.portDiversity);
+        double zSyn = baselineService.calculateZScore("SYNS_PER_SEC", s.syns);
+        double zIcmp = baselineService.calculateZScore("ICMPS_PER_SEC", s.icmps);
+        double zAvgSize = baselineService.calculateZScore("AVG_PACKET_SIZE", s.avgPacketSize);
+        double zAsym = baselineService.calculateZScore("TRAFFIC_ASYMMETRY", s.asymmetry);
+        double zFlows = baselineService.calculateZScore("ACTIVE_FLOWS", s.flows);
+        double zPortVar = baselineService.calculateZScore("GLOBAL_PORT_DIVERSITY", s.portDiversity);
 
 
         log.info("--- NETWORK SNAPSHOT (REACTIVE) ---");
@@ -79,21 +82,28 @@ public class StatisticsAggregator {
         log.info("Ilość unikalnych portów:   {}, Z: {}", s.portDiversity, zPortVar);
         log.info("------------------------------------");
 
-        double anomalyProbability = fuzzyService.analyze(zSyn, zIcmp, zAvgSize, zAsym, zFlows, zPortVar);
+        this.lastProbability = fuzzyService.analyze(zSyn, zIcmp, zAvgSize, zAsym, zFlows, zPortVar);
 
         log.info("--- ANALIZA ZAGROŻEŃ ---");
-        log.info("Prawdopodobieństwo anomalii: {}%", String.format("%.2f", anomalyProbability));
+        log.info("Prawdopodobieństwo anomalii: {}%", String.format("%.2f", this.lastProbability));
 
-        if (anomalyProbability > 70) {
+        if (this.lastProbability > 70) {
             log.error("!!! WYKRYTO POWAŻNĄ ANOMALIĘ !!!");
         }
 
-        baselineService.addObservation("SYNS_PER_SEC", s.syns, anomalyProbability);
-        baselineService.addObservation("ICMPS_PER_SEC", s.icmps, anomalyProbability);
-        baselineService.addObservation("AVG_PACKET_SIZE", s.avgPacketSize, anomalyProbability);
-        baselineService.addObservation("TRAFFIC_ASYMMETRY", s.asymmetry, anomalyProbability);
-        baselineService.addObservation("ACTIVE_FLOWS", s.flows, anomalyProbability);
-        baselineService.addObservation("GLOBAL_PORT_DIVERSITY", s.portDiversity, anomalyProbability);
+        baselineService.addObservation("SYNS_PER_SEC", s.syns, this.lastProbability);
+        baselineService.addObservation("ICMPS_PER_SEC", s.icmps, this.lastProbability);
+        baselineService.addObservation("AVG_PACKET_SIZE", s.avgPacketSize, this.lastProbability);
+        baselineService.addObservation("TRAFFIC_ASYMMETRY", s.asymmetry, this.lastProbability);
+        baselineService.addObservation("ACTIVE_FLOWS", s.flows, this.lastProbability);
+        baselineService.addObservation("GLOBAL_PORT_DIVERSITY", s.portDiversity, this.lastProbability);
+    }
+
+    public Map<String, Double> getCurrentMetrics() {
+        Map<String, Double> metrics = new HashMap<>();
+        metrics.put("anomalyProbability", this.lastProbability);
+        // dodaj inne wartości Z-Score, które chcesz widzieć na wykresie
+        return metrics;
     }
 
     @PreDestroy

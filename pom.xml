@@ -45,6 +45,12 @@
 			<artifactId>spring-boot-starter-webflux-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-thymeleaf</artifactId>
+		</dependency>
+
 		<dependency>
 			<groupId>org.pcap4j</groupId>
 			<artifactId>pcap4j-core</artifactId>
@@ -72,6 +78,7 @@
 			<artifactId>jFuzzyLogic</artifactId>
 			<version>1.2.1</version>
 		</dependency>
+
 	</dependencies>
 
 	<build>

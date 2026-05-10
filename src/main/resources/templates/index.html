@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>IDS Monitoring Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .metric-card { transition: all 0.3s ease; }
+        .anomaly-danger { background-color: #f8d7da; border-color: #f5c2c7; }
+    </style>
+</head>
+<body class="bg-light">
+<div class="container py-5">
+    <h1 class="mb-4">IDS Real-Time Monitor</h1>
+
+    <div class="row" id="metrics-container">
+        <!-- Tutaj JS wstrzyknie karty statystyk -->
+    </div>
+
+    <div class="mt-4 p-3 border rounded bg-white shadow-sm">
+        <h5>Status Systemu: <span id="status-badge" class="badge bg-success">LEARNING</span></h5>
+        <p id="probability-text">Prawdopodobieństwo anomalii: 0.00%</p>
+        <div class="progress">
+            <div id="prob-bar" class="progress-bar" role="progressbar" style="width: 0%"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const eventSource = new EventSource("/dashboard/stream");
+
+    eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        updateUI(data);
+    };
+
+    function updateUI(data) {
+        const prob = data.anomalyProbability || 0;
+
+        // Aktualizacja paska prawdopodobieństwa
+        const bar = document.getElementById('prob-bar');
+        bar.style.width = prob + '%';
+        bar.className = prob > 70 ? 'progress-bar bg-danger' : 'progress-bar bg-primary';
+        document.getElementById('probability-text').innerText = `Prawdopodobieństwo anomalii: ${prob.toFixed(2)}%`;
+
+        // Aktualizacja statusu blokady uczenia
+        const statusBadge = document.getElementById('status-badge');
+        if (prob > 70) {
+            statusBadge.innerText = "ATTACK DETECTED - LOCK";
+            statusBadge.className = "badge bg-danger";
+        } else {
+            statusBadge.innerText = "LEARNING";
+            statusBadge.className = "badge bg-success";
+        }
+    }
+</script>
+</body>
+</html>

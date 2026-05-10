@@ -26,7 +26,7 @@ public class BaselineService {
     public void addObservation(String featureName, double value, double anomalyProbability) {
         BaselineStats stats = currentStats.computeIfAbsent(featureName, k -> new BaselineStats());
 
-        if (anomalyProbability > 70.0 && stats.getCount() > 30) {
+        if (anomalyProbability > 60.0 && stats.getCount() > 30) {
             log.warn("Pominięto aktualizację baseline dla {} - wykryto silną anomalię", featureName);
             return;
         }

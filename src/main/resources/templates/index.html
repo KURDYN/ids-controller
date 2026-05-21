@@ -12,7 +12,6 @@
 <div class="container py-5">
     <h1 class="mb-4">IDS Real-Time Monitor</h1>
 
-    <!-- Główny panel stanu -->
     <div class="card mb-4 shadow-sm border-0">
         <div id="status-card-body" class="card-body">
             <h5 class="card-title">Status Systemu: <span id="status-badge" class="badge bg-success">LEARNING</span></h5>
@@ -23,9 +22,31 @@
         </div>
     </div>
 
-    <!-- Kontener na kafelki Z-Score -->
-    <div class="row" id="metrics-grid">
-        <!-- JS tutaj wstawi kafelki -->
+    <div class="row" id="metrics-grid"></div>
+    <!-- Sekcja Incydentów -->
+    <div class="mt-5 p-4 border rounded bg-white shadow-sm">
+        <h4 class="mb-3 text-secondary d-flex justify-content-between align-content-center">
+            <span>Historia Incydentów i Forensics</span>
+            <span class="badge bg-secondary font-monospace" id="incident-count" style="font-size: 1rem;">0</span>
+        </h4>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead class="table-dark">
+                <tr>
+                    <th>Czas wykrycia</th>
+                    <th>ID Incydentu</th>
+                    <th>Opis / Wyzwalacz</th>
+                    <th>Max Prawdopodobieństwo</th>
+                    <th>Analiza Wireshark</th>
+                </tr>
+                </thead>
+                <tbody id="incidents-table-body">
+                <tr>
+                    <td colspan="5" class="text-center text-muted py-3">Brak zarejestrowanych incydentów. System jest bezpieczny.</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 
@@ -35,7 +56,6 @@
     eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data);
 
-        // 1. Aktualizacja Głównego Wskaźnika (Anomaly Probability)
         const prob = data.anomalyProbability || 0;
         const bar = document.getElementById('prob-bar');
         const probText = document.getElementById('probability-text');
@@ -57,17 +77,13 @@
             statusCard.parentElement.classList.remove('border-danger');
         }
 
-        // 2. Aktualizacja Kafelków Z-Score
         const grid = document.getElementById('metrics-grid');
         let gridHtml = '';
 
-        // Iterujemy po wszystkich kluczach w mapie
         Object.keys(data).forEach(key => {
-            // Pomijamy prawdopodobieństwo, bo już je wyświetliliśmy wyżej
             if (key === 'anomalyProbability') return;
 
             const val = data[key];
-            // Jeśli Z-Score > 3 lub < -3, zaznaczamy na czerwono (anomalia statystyczna)
             const isAnomaly = Math.abs(val) > 3.0;
             const alertClass = isAnomaly ? 'border-danger text-danger' : 'border-light';
             const bgClass = isAnomaly ? 'bg-danger-subtle' : 'bg-white';
@@ -91,6 +107,50 @@
 
         grid.innerHTML = gridHtml;
     };
+
+    // Wywołaj tę funkcję na końcu eventSource.onmessage lub ustaw dla niej setInterval
+    function refreshIncidents() {
+        fetch('/dashboard/incidents')
+            .then(response => response.json())
+            .then(incidents => {
+                const tbody = document.getElementById('incidents-table-body');
+                document.getElementById('incident-count').innerText = incidents.length;
+
+                if (incidents.length === 0) return;
+
+                let html = '';
+                // Sortujemy od najnowszych
+                incidents.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+                incidents.forEach(inc => {
+                    const date = new Date(inc.timestamp).toLocaleTimeString();
+                    html += `
+                    <tr>
+                        <td class="font-monospace">${date}</td>
+                        <td><small class="text-muted">${inc.id.substring(0,8)}...</small></td>
+                        <td><span class="fw-semibold">${inc.description}</span></td>
+                        <td>
+                            <span class="badge bg-danger">${inc.maxProbability.toFixed(1)}%</span>
+                        </td>
+                        <td>
+                            <a href="/dashboard/incidents/${inc.id}/pcap" class="btn btn-sm btn-outline-primary d-inline-flex align-items-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-download me-1" viewBox="0 0 16 16">
+                                  <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
+                                  <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
+                                </svg> Pobierz PCAP
+                            </a>
+                        </td>
+                    </tr>
+                `;
+                });
+                tbody.innerHTML = html;
+            });
+    }
+
+    // Odświeżaj listę incydentów co 5 sekund
+    setInterval(refreshIncidents, 5000);
+    // Uruchom też raz na starcie strony
+    refreshIncidents();
 </script>
 </body>
 </html>

@@ -26,12 +26,11 @@ public class FeatureExtractor {
     private final LongAdder totalPayloadSize = new LongAdder();
     private final Set<String> activeFlows = ConcurrentHashMap.newKeySet();
 
-    // statystyki podstawowe
     private final AtomicInteger synCount = new AtomicInteger(0);
     private final AtomicInteger icmpCount = new AtomicInteger(0);
     private final Map<String, Set<Integer>> portVarietyMap = new ConcurrentHashMap<>();
 
-    private final String PROTECTED_IP = "172.18.0.3"; // adres ofiary z którego można pobierać pliki
+    private final String PROTECTED_IP = "172.18.0.3";
 
     public void extract(Packet packet) {
         if (isTrafficToController(packet)) return;

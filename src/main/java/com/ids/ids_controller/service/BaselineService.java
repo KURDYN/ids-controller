@@ -17,7 +17,6 @@ public class BaselineService {
     private static final Logger log = LoggerFactory.getLogger(BaselineService.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    // ConcurrentLinkedDeque jest bezpieczna dla wielu wątków (lock-free)
     private final Map<String, Deque<Double>> historyMap = new ConcurrentHashMap<>();
     private final int MAX_WINDOW_SIZE = 86400; // 24h
 
@@ -31,26 +30,24 @@ public class BaselineService {
             return;
         }
 
-        // Standardowe przesuwanie okna (Deque)
+        // przesuwanie okna Deque
         Deque<Double> history = historyMap.computeIfAbsent(featureName, k -> new ConcurrentLinkedDeque<>());
         if (history.size() >= MAX_WINDOW_SIZE) {
             Double oldest = history.pollFirst();
             if (oldest != null) stats.remove(oldest);
         }
         history.addLast(value);
-        stats.update(value); // Używamy nowej metody Welforda
+        stats.update(value);
     }
 
     public double calculateZScore(String featureName, double currentValue) {
         BaselineStats stats = currentStats.get(featureName);
 
-        // Z-Score wymaga minimum danych, by mieć sens statystyczny (np. 30 próbek)
         if (stats == null || stats.getCount() < 30) return 0.0;
 
         double mean = stats.getMean();
         double stdDev = stats.getStdDev();
 
-        // Jeśli odchylenie jest bliskie zeru, każdy ruch inny niż średnia byłby nieskończoną anomalią
         if (stdDev < 0.0001) return 0.0;
 
         return (currentValue - mean) / stdDev;
@@ -69,10 +66,6 @@ public class BaselineService {
         log.info("Wyeksportowano profil baseline do: {}", filePath);
     }
 
-    /**
-     * Wczytuje profil statystyczny z pliku JSON.
-     * Pozwala to na natychmiastowe ustawienie baselinu bez fazy uczenia.
-     */
     public void importProfile(String filePath) throws IOException {
         File file = new File(filePath);
         if (!file.exists()) return;

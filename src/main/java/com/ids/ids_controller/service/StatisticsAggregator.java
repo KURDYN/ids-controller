@@ -20,7 +20,8 @@ public class StatisticsAggregator {
     private final FeatureExtractor featureExtractor;
     private final BaselineService baselineService;
     private final FuzzyService fuzzyService;
-    private Disposable subscription; // Referencja do subskrypcji, by móc ją zamknąć
+    private final IncidentService incidentService;
+    private Disposable subscription;
 
     public double lastProbability;
     public double zSyn;
@@ -30,17 +31,17 @@ public class StatisticsAggregator {
     public double zFlows;
     public double zPortVar;
 
-    public StatisticsAggregator(FeatureExtractor featureExtractor, BaselineService baselineService, FuzzyService fuzzyService) {
+    public StatisticsAggregator(FeatureExtractor featureExtractor, BaselineService baselineService, FuzzyService fuzzyService, IncidentService incidentService) {
         this.featureExtractor = featureExtractor;
         this.baselineService = baselineService;
         this.fuzzyService = fuzzyService;
+        this.incidentService = incidentService;
     }
 
     @PostConstruct
     public void init() {
         log.info("Inicjalizacja agregatora statystyk...");
 
-        // Tworzymy strumień, który "tyka" co 1 sekundę
         this.subscription = Flux.interval(Duration.ofSeconds(1))
                 .publishOn(Schedulers.parallel())
                 .map(tick -> captureSnapshot())
@@ -93,8 +94,12 @@ public class StatisticsAggregator {
         log.info("--- ANALIZA ZAGROŻEŃ ---");
         log.info("Prawdopodobieństwo anomalii: {}%", String.format("%.2f", this.lastProbability));
 
-        if (this.lastProbability > 70) {
+        if (this.lastProbability > 60) {
             log.error("!!! WYKRYTO POWAŻNĄ ANOMALIĘ !!!");
+            incidentService.handleAttackDetection(this.lastProbability, "ATAK");
+        }
+        else {
+            incidentService.endAttack();
         }
 
         baselineService.addObservation("SYNS_PER_SEC", s.syns, this.lastProbability);

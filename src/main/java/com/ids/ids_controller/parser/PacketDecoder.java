@@ -1,6 +1,7 @@
 package com.ids.ids_controller.parser;
 
 import com.ids.ids_controller.service.FeatureExtractor;
+import com.ids.ids_controller.service.IncidentService;
 import org.pcap4j.packet.*;
 import org.springframework.stereotype.Component;
 
@@ -14,14 +15,19 @@ public class PacketDecoder {
 
     private final FeatureExtractor featureExtractor;
 
+    private final IncidentService incidentService;
+
     // Flaga określająca kolejność bajtów dla aktualnie przetwarzanego strumienia
     private boolean isBigEndian = false;
 
     private byte[] remainder = null;
 
+
+
     // Wstrzyknięcie serwisu ekstraktora cech przez konstruktor
-    public PacketDecoder(FeatureExtractor featureExtractor) {
+    public PacketDecoder(FeatureExtractor featureExtractor, IncidentService incidentService) {
         this.featureExtractor = featureExtractor;
+        this.incidentService = incidentService;
     }
 
     /*
@@ -44,6 +50,8 @@ public class PacketDecoder {
 
         int offset = 0;
 
+        byte[] pcapHeader = new byte[24];
+
         /* * sprawdzenie tzw. "Magic Number" nagłówka globalnego PCAP (24 bajty).
          * 0xa1b2c3d4/0xa1b23c4d oznacza standardowy format, 0xd4c3b2a1/0x4d3cb2a1 to format zamieniony.
          * na maszynie Big-Endian, w pamięci bajty leżą po kolei: A1 B2 C3 D4. (Network Byte Order)
@@ -58,11 +66,15 @@ public class PacketDecoder {
             // Big-Endian
             if (data[0] == (byte)0xa1 && data[1] == (byte)0xb2) {
                 isBigEndian = true;
+                System.arraycopy(data,0, pcapHeader, 0, 24);
+                incidentService.setGlobalHeader(pcapHeader);
                 offset = 24;
             }
             // Little-Endian
             else if ((data[0] == (byte)0xd4 && data[1] == (byte)0xc3 || data[0] == (byte)0x4d && data[1] == (byte)0x3c)) {
                 isBigEndian = false;
+                System.arraycopy(data,0, pcapHeader, 0, 24);
+                incidentService.setGlobalHeader(pcapHeader);
                 offset = 24;
             }
         }
@@ -106,6 +118,9 @@ public class PacketDecoder {
                 }
 
                 try {
+                    byte[] fullPacketRecord = new byte[16 + packetLen];
+                    System.arraycopy(data, offset, fullPacketRecord, 0, 16 + packetLen);
+                    incidentService.registerPacket(fullPacketRecord);
                     // Kopiujemy tylko czyste dane ramki Ethernet (pomijając 16 bajtów nagłówka rekordu)
                     byte[] ethernetRaw = new byte[packetLen];
                     System.arraycopy(data, offset + 16, ethernetRaw, 0, packetLen);

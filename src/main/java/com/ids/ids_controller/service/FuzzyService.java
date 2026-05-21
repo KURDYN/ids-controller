@@ -9,7 +9,6 @@ public class FuzzyService {
     private final FIS fis;
 
     public FuzzyService() {
-        // Wczytanie pliku FCL z zasobów
         String fileName = "anomaly_finder.fcl";
         this.fis = FIS.load(getClass().getClassLoader().getResourceAsStream(fileName), true);
 

@@ -18,6 +18,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.Map;
 
 @Controller
@@ -39,12 +40,19 @@ public class DashboardController {
         return "index";
     }
 
-    // reaktywne API przesyłające dane w formacie Server-Sent Events (SSE)
+    // Nowa struktura: Map<SensorID, Map<NazwaMetryki, Wartosc>>
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @ResponseBody
-    public Flux<Map<String, Double>> streamMetrics() {
+    public Flux<Map<String, Map<String, Double>>> streamMetrics() {
         return Flux.interval(Duration.ofSeconds(1))
-                .map(sequence -> aggregator.getCurrentMetrics())
+                .map(sequence -> {
+                    Map<String, Map<String, Double>> allSensorsData = new HashMap<>();
+                    // Pobieramy metryki niezależnie dla każdej wykrytej sondy
+                    for (String sensorId : incidentService.getActiveSensors()) {
+                        allSensorsData.put(sensorId, aggregator.getCurrentMetrics(sensorId));
+                    }
+                    return allSensorsData;
+                })
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
@@ -59,7 +67,6 @@ public class DashboardController {
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
-    // Endpoint zwracający aktualną listę incydentów w formacie JSON
     @GetMapping("/incidents")
     @ResponseBody
     public Flux<Incident> getIncidentsList() {

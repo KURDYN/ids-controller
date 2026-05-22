@@ -12,18 +12,12 @@
 <div class="container py-5">
     <h1 class="mb-4">IDS Real-Time Monitor</h1>
 
-    <div class="card mb-4 shadow-sm border-0">
-        <div id="status-card-body" class="card-body">
-            <h5 class="card-title">Status Systemu: <span id="status-badge" class="badge bg-success">LEARNING</span></h5>
-            <p id="probability-text" class="h3 fw-bold">0.00%</p>
-            <div class="progress" style="height: 25px;">
-                <div id="prob-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
-            </div>
-        </div>
+    <!-- Dynamiczny kontener na karty sond sieciowych -->
+    <div id="sensors-container">
+        <div class="alert alert-info text-center">Oczekiwanie na strumień danych z sond sieciowych...</div>
     </div>
 
-    <div class="row" id="metrics-grid"></div>
-    <!-- Sekcja Incydentów -->
+    <!-- Sekcja Incydentów (Wspólna, poniżej wszystkich sond) -->
     <div class="mt-5 p-4 border rounded bg-white shadow-sm">
         <h4 class="mb-3 text-secondary d-flex justify-content-between align-content-center">
             <span>Historia Incydentów i Forensics</span>
@@ -55,60 +49,88 @@
 
     eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data);
+        const container = document.getElementById('sensors-container');
 
-        const prob = data.anomalyProbability || 0;
-        const bar = document.getElementById('prob-bar');
-        const probText = document.getElementById('probability-text');
-        const statusBadge = document.getElementById('status-badge');
-        const statusCard = document.getElementById('status-card-body');
+        let totalSensorsHtml = '';
 
-        probText.innerText = `Prawdopodobieństwo: ${prob.toFixed(2)}%`;
-        bar.style.width = prob + '%';
+        // Iterujemy po każdej sondzie w otrzymanej mapie
+        Object.keys(data).forEach(sensorId => {
+            const sensorData = data[sensorId];
+            const prob = sensorData.anomalyProbability || 0;
 
-        if (prob > 60) {
-            bar.className = 'progress-bar bg-danger progress-bar-striped progress-bar-animated';
-            statusBadge.className = 'badge bg-danger';
-            statusBadge.innerText = 'ATTACK DETECTED';
-            statusCard.parentElement.classList.add('border-danger');
-        } else {
-            bar.className = 'progress-bar bg-primary';
-            statusBadge.className = 'badge bg-success';
-            statusBadge.innerText = 'MONITORING / LEARNING';
-            statusCard.parentElement.classList.remove('border-danger');
-        }
+            let barClass = 'bg-primary';
+            let badgeClass = 'bg-success';
+            let statusText = 'MONITORING / LEARNING';
+            let cardBorder = '';
 
-        const grid = document.getElementById('metrics-grid');
-        let gridHtml = '';
+            if (prob > 60) {
+                barClass = 'bg-danger progress-bar-striped progress-bar-animated';
+                badgeClass = 'bg-danger';
+                statusText = 'ATTACK DETECTED';
+                cardBorder = 'border-danger';
+            }
 
-        Object.keys(data).forEach(key => {
-            if (key === 'anomalyProbability') return;
+            // Generowanie mikro-kart Z-Score dla tej konkretnej sondy
+            let gridHtml = '';
+            Object.keys(sensorData).forEach(key => {
+                if (key === 'anomalyProbability') return;
 
-            const val = data[key];
-            const isAnomaly = Math.abs(val) > 3.0;
-            const alertClass = isAnomaly ? 'border-danger text-danger' : 'border-light';
-            const bgClass = isAnomaly ? 'bg-danger-subtle' : 'bg-white';
+                const val = sensorData[key];
+                const isAnomaly = Math.abs(val) > 3.0;
+                const alertClass = isAnomaly ? 'border-danger text-danger' : 'border-light';
+                const bgClass = isAnomaly ? 'bg-danger-subtle' : 'bg-white';
 
-            gridHtml += `
-            <div class="col-md-4 col-lg-3 mb-3">
-                <div class="card h-100 shadow-sm ${alertClass} ${bgClass} transition-all">
-                    <div class="card-body text-center p-3">
-                        <div class="text-uppercase text-muted mb-1" style="font-size: 0.7rem; letter-spacing: 1px;">
-                            ${key.replace(/_/g, ' ')}
+                gridHtml += `
+                    <div class="col-md-4 col-lg-2 mb-3">
+                        <div class="card h-100 shadow-sm ${alertClass} ${bgClass} metric-card">
+                            <div class="card-body text-center p-2">
+                                <div class="text-uppercase text-muted mb-1" style="font-size: 0.65rem; letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                    ${key.replace(/_/g, ' ')}
+                                </div>
+                                <div class="h5 mb-0 fw-bold font-monospace">
+                                    ${val.toFixed(3)}
+                                </div>
+                                <small class="text-muted" style="font-size: 0.7rem;">Z-Score</small>
+                            </div>
                         </div>
-                        <div class="h4 mb-0 fw-bold font-monospace">
-                            ${val.toFixed(3)}
+                    </div>
+                `;
+            });
+
+            // Składanie całej sekcji dla pojedynczego segmentu sieci
+            totalSensorsHtml += `
+                <div class="card mb-4 shadow-sm border-0 ${cardBorder}">
+                    <div class="card-header bg-dark text-white fw-bold d-flex justify-content-between align-items-center py-3">
+                        <h5 class="m-0 font-monospace">Segment sieci (Sonda IP): ${sensorId}</h5>
+                        <span class="badge ${badgeClass}">${statusText}</span>
+                    </div>
+                    <div class="card-body bg-white p-4">
+                        <div class="row align-items-center mb-4">
+                            <div class="col-md-3">
+                                <span class="text-muted small d-block">Prawdopodobieństwo anomalii</span>
+                                <span class="h3 fw-bold m-0">${prob.toFixed(2)}%</span>
+                            </div>
+                            <div class="col-md-9">
+                                <div class="progress" style="height: 22px;">
+                                    <div class="progress-bar ${barClass}" role="progressbar" style="width: ${prob}%"></div>
+                                </div>
+                            </div>
                         </div>
-                        <small class="text-muted">Z-Score</small>
+                        <div class="row">
+                            ${gridHtml}
+                        </div>
                     </div>
                 </div>
-            </div>
-        `;
+            `;
         });
 
-        grid.innerHTML = gridHtml;
+        if (Object.keys(data).length > 0) {
+            container.innerHTML = totalSensorsHtml;
+        } else {
+            container.innerHTML = '<div class="alert alert-warning text-center">Brak podłączonych sond. Uruchom dumpcap na maszynach monitorujących.</div>';
+        }
     };
 
-    // Wywołaj tę funkcję na końcu eventSource.onmessage lub ustaw dla niej setInterval
     function refreshIncidents() {
         fetch('/dashboard/incidents')
             .then(response => response.json())
@@ -119,7 +141,6 @@
                 if (incidents.length === 0) return;
 
                 let html = '';
-                // Sortujemy od najnowszych
                 incidents.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
 
                 incidents.forEach(inc => {
@@ -147,9 +168,7 @@
             });
     }
 
-    // Odświeżaj listę incydentów co 5 sekund
     setInterval(refreshIncidents, 5000);
-    // Uruchom też raz na starcie strony
     refreshIncidents();
 </script>
 </body>

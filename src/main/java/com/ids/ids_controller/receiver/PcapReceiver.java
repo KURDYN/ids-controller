@@ -3,9 +3,12 @@ package com.ids.ids_controller.receiver;
 import com.ids.ids_controller.parser.PacketDecoder;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Component;
+import reactor.netty.Connection;
 import reactor.netty.tcp.TcpServer;
 
- /**
+import java.net.InetSocketAddress;
+
+/**
  * https://projectreactor.io/docs/netty/release/reference/tcp-server.html - TcpSerwer generalnie
  * https://projectreactor.io/docs/netty/snapshot/api/reactor/netty/ByteBufFlux.html#asByteArray() - asByteArray
  * https://projectreactor.io/docs/core/release/api/reactor/core/publisher/Flux.html - doOnNext/Terminatee
@@ -33,6 +36,10 @@ public class PcapReceiver {
                 .host("0.0.0.0") // nasłuch na wszystkich interfejsach
                 .port(9000)      // port zgodny z sondą
                 .handle((in, out) -> { // handling połączeń in - połączenie wejściowe, out - połączenie wyjściowe
+                    Connection connection = (Connection) in;
+                    InetSocketAddress remoteAddress = (InetSocketAddress) connection.channel().remoteAddress();
+                    String sensorId = remoteAddress.getAddress().getHostAddress();
+
                     // in/out TO SĄ ByteBufFlux!!!!
                     log.info("Sonda połączyła się z kontrolerem.");
 
@@ -40,7 +47,7 @@ public class PcapReceiver {
                             .asByteArray() // Returns a Flux with byte[] inside of it
                             .doOnNext(data -> { // Add behavior (side-effect) triggered when the Flux emits an item
                                 log.debug("Odebrano paczkę danych: {} bajtów", data.length); // pcapy z socata przychodzą w formie surowych bajtów
-                                packetDecoder.decode(data); // przekazujemy paczki danych do decodera
+                                packetDecoder.decode(data, sensorId); // przekazujemy paczki danych do decodera
                             })
                             .doOnTerminate(() -> log.info("Połączenie z sondą przerwane.")) // Add behavior (side-effect) triggered when the Flux terminates, either by completing successfully
                             // or failing with an error - u nas informuje że połączenie z sonda zostało przerwane

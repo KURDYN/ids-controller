@@ -20,24 +20,36 @@ import org.slf4j.LoggerFactory;
 public class FeatureExtractor {
     private static final Logger log = LoggerFactory.getLogger(FeatureExtractor.class);
 
-    private final LongAdder inboundBytes = new LongAdder();
-    private final LongAdder outboundBytes = new LongAdder();
-    private final LongAdder totalPacketCount = new LongAdder();
-    private final LongAdder totalPayloadSize = new LongAdder();
-    private final Set<String> activeFlows = ConcurrentHashMap.newKeySet();
-
-    private final AtomicInteger synCount = new AtomicInteger(0);
-    private final AtomicInteger icmpCount = new AtomicInteger(0);
-    private final Map<String, Set<Integer>> portVarietyMap = new ConcurrentHashMap<>();
+    // Dynamiczna mapa przechowująca stan liczników niezależnie dla każdej sondy
+    private final Map<String, SensorState> sensorStates = new ConcurrentHashMap<>();
 
     private final String PROTECTED_IP = "172.18.0.3";
 
-    public void extract(Packet packet) {
+    /**
+     * Wewnętrzna klasa grupująca Twoje oryginalne liczniki per sensor
+     */
+    private static class SensorState {
+        final LongAdder inboundBytes = new LongAdder();
+        final LongAdder outboundBytes = new LongAdder();
+        final LongAdder totalPacketCount = new LongAdder();
+        final LongAdder totalPayloadSize = new LongAdder();
+        final Set<String> activeFlows = ConcurrentHashMap.newKeySet();
+
+        final AtomicInteger synCount = new AtomicInteger(0);
+        final AtomicInteger icmpCount = new AtomicInteger(0);
+        final Map<String, Set<Integer>> portVarietyMap = new ConcurrentHashMap<>();
+    }
+
+    // Nowa sygnatura metody przyjmująca sensorId
+    public void extract(Packet packet, String sensorId) {
         if (isTrafficToController(packet)) return;
 
+        // Pobieramy istniejący stan sondy lub tworzymy nowy w locie (wątkobezpiecznie)
+        SensorState state = sensorStates.computeIfAbsent(sensorId, k -> new SensorState());
+
         int packetSize = packet.length();
-        totalPacketCount.increment();
-        totalPayloadSize.add(packetSize);
+        state.totalPacketCount.increment();
+        state.totalPayloadSize.add(packetSize);
 
         String srcIp = "";
         String dstIp = "";
@@ -47,15 +59,15 @@ public class FeatureExtractor {
             srcIp = ipPkt.getHeader().getSrcAddr().getHostAddress();
             dstIp = ipPkt.getHeader().getDstAddr().getHostAddress();
 
-            // Kierunek ruchu
+            // Kierunek ruchu (używamy stanu konkretnej sondy)
             if (dstIp.equals(PROTECTED_IP)) {
-                inboundBytes.add(packetSize);
+                state.inboundBytes.add(packetSize);
             } else if (srcIp.equals(PROTECTED_IP)) {
-                outboundBytes.add(packetSize);
+                state.outboundBytes.add(packetSize);
             }
 
             // Unikalne przepływy (Flows)
-            activeFlows.add(srcIp + "->" + dstIp);
+            state.activeFlows.add(srcIp + "->" + dstIp);
         }
 
         if (packet.contains(TcpPacket.class)) {
@@ -64,19 +76,19 @@ public class FeatureExtractor {
 
             // SYN Flood
             if (tcp.getHeader().getSyn() && !tcp.getHeader().getAck()) {
-                synCount.incrementAndGet();
+                state.synCount.incrementAndGet();
             }
 
             // NMAP / Entropia Portów
             if (!srcIp.isEmpty()) {
-                portVarietyMap.computeIfAbsent(srcIp, k -> ConcurrentHashMap.newKeySet()).add(dstPort);
+                state.portVarietyMap.computeIfAbsent(srcIp, k -> ConcurrentHashMap.newKeySet()).add(dstPort);
             }
         }
 
         if (packet.contains(IcmpV4CommonPacket.class)) {
             IcmpV4CommonPacket icmp = packet.get(IcmpV4CommonPacket.class);
             if (icmp.getHeader().getType().value() == (byte) 8) {
-                icmpCount.incrementAndGet();
+                state.icmpCount.incrementAndGet();
             }
         }
     }
@@ -88,41 +100,61 @@ public class FeatureExtractor {
         return false;
     }
 
-    // Metody eksportujące dane do Agregatora Statystyk
-    public int getAndResetSynCount() { return synCount.getAndSet(0); }
-    public int getAndResetIcmpCount() { return icmpCount.getAndSet(0); }
-    public double getAvgPacketSize() {
-        long count = totalPacketCount.sum();
-        return count == 0 ? 0 : (double) totalPayloadSize.sum() / count;
+    // --- Metody eksportujące dane dostosowane do obsługi konkretnego sensorId ---
+
+    public int getAndResetSynCount(String sensorId) {
+        SensorState state = sensorStates.get(sensorId);
+        return state == null ? 0 : state.synCount.getAndSet(0);
     }
 
-    public double getTrafficAsymmetry() {
-        double in = inboundBytes.sum();
-        double out = outboundBytes.sum();
-        if (out == 0) return in; // Unikamy dzielenia przez zero
-        return in / out; // > 1 ruch przychodzący dominuje (DDoS), < 1 wychodzący (Exfiltration)
+    public int getAndResetIcmpCount(String sensorId) {
+        SensorState state = sensorStates.get(sensorId);
+        return state == null ? 0 : state.icmpCount.getAndSet(0);
     }
 
-    public int getActiveFlowsCount() {
-        return activeFlows.size();
+    public double getAvgPacketSize(String sensorId) {
+        SensorState state = sensorStates.get(sensorId);
+        if (state == null) return 0;
+        long count = state.totalPacketCount.sum();
+        return count == 0 ? 0 : (double) state.totalPayloadSize.sum() / count;
     }
 
-    public Map<String, Integer> getAndResetPortVariety() {
+    public double getTrafficAsymmetry(String sensorId) {
+        SensorState state = sensorStates.get(sensorId);
+        if (state == null) return 0;
+        double in = state.inboundBytes.sum();
+        double out = state.outboundBytes.sum();
+        if (out == 0) return in;
+        return in / out;
+    }
+
+    public int getActiveFlowsCount(String sensorId) {
+        SensorState state = sensorStates.get(sensorId);
+        return state == null ? 0 : state.activeFlows.size();
+    }
+
+    public Map<String, Integer> getAndResetPortVariety(String sensorId) {
         Map<String, Integer> result = new HashMap<>();
-        portVarietyMap.forEach((ip, ports) -> result.put(ip, ports.size()));
-        portVarietyMap.clear();
+        SensorState state = sensorStates.get(sensorId);
+        if (state != null) {
+            state.portVarietyMap.forEach((ip, ports) -> result.put(ip, ports.size()));
+            state.portVarietyMap.clear();
+        }
         return result;
     }
 
-    // Resetowanie statystyk po zebraniu przez Agregator
-    public void resetAll() {
-        synCount.set(0);
-        icmpCount.set(0);
-        totalPacketCount.reset();
-        totalPayloadSize.reset();
-        inboundBytes.reset();
-        outboundBytes.reset();
-        portVarietyMap.clear();
-        activeFlows.clear();
+    // Resetowanie statystyk konkretnej sondy po zebraniu danych przez Agregator
+    public void resetAll(String sensorId) {
+        SensorState state = sensorStates.get(sensorId);
+        if (state != null) {
+            state.synCount.set(0);
+            state.icmpCount.set(0);
+            state.totalPacketCount.reset();
+            state.totalPayloadSize.reset();
+            state.inboundBytes.reset();
+            state.outboundBytes.reset();
+            state.portVarietyMap.clear();
+            state.activeFlows.clear();
+        }
     }
 }

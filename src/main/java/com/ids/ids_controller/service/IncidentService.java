@@ -1,118 +1,65 @@
 package com.ids.ids_controller.service;
 
 import com.ids.ids_controller.model.Incident;
+import com.ids.ids_controller.model.SensorContext;
 import org.springframework.stereotype.Service;
-import java.io.ByteArrayOutputStream;
-import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedDeque;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 @Service
 public class IncidentService {
 
-    private byte[] pcapGlobalHeader;
+    // Mapa przechowująca osobny kontekst sieciowy dla każdego sensora
+    private final Map<String, SensorContext> sensorContexts = new ConcurrentHashMap<>();
 
-    // Pasywny bufor kołowy na pakiety
-    private final Deque<byte[]> rollingPacketBuffer = new ConcurrentLinkedDeque<>();
-    private final int MAX_ROLLING_SIZE = 2000;
-
-    // Atomowy licznik rozmiaru bufora - zapewnia operację O(1) zamiast O(n)
-    private final AtomicInteger currentBufferSize = new AtomicInteger(0);
-
-    // Przechowalnia gotowych incydentów
+    // Repozytorium incydentów (warto rozważyć kluczowanie sensorId + incidentId)
     private final Map<String, Incident> incidentRepository = new ConcurrentHashMap<>();
 
-    // volatile gwarantuje, że wszystkie wątki natychmiast zobaczą zmianę stanu ataku
-    private volatile boolean isAttackOngoing = false;
-    private ByteArrayOutputStream activeIncidentStream;
-    private String currentIncidentId;
-    private double currentMaxProb = 0.0;
-
-    public void setGlobalHeader(byte[] header) {
-        if (this.pcapGlobalHeader == null) {
-            this.pcapGlobalHeader = header.clone();
-        }
+    // Metoda pomocnicza pobierająca lub tworząca kontekst dla nowej sondy w locie
+    private SensorContext getOrCreateContext(String sensorId) {
+        return sensorContexts.computeIfAbsent(sensorId, SensorContext::new);
     }
 
-    // Wywoływane przez PcapReceiver dla KAŻDEGO pakietu
-    public void registerPacket(byte[] packetWithHeader) {
-        if (isAttackOngoing) {
-            // Blok synchronized chroni strumień przed równoległym zapisem i nagłym ustawieniem na null
-            synchronized (this) {
-                if (isAttackOngoing && activeIncidentStream != null) {
-                    try {
-                        activeIncidentStream.write(packetWithHeader);
-                    } catch (Exception ignored) {}
-                } else {
-                    // W razie mikro-wyścigu na przełomie stanu, zabezpieczamy pakiet w buforze
-                    pushToRollingBuffer(packetWithHeader);
-                }
-            }
-        } else {
-            pushToRollingBuffer(packetWithHeader);
-        }
+    public void setGlobalHeader(String sensorId, byte[] header) {
+        getOrCreateContext(sensorId).setGlobalHeader(header);
     }
 
-    private void pushToRollingBuffer(byte[] packet) {
-        rollingPacketBuffer.addLast(packet);
-        // Bezpieczne i ekstremalnie szybkie sprawdzanie rozmiaru
-        if (currentBufferSize.incrementAndGet() > MAX_ROLLING_SIZE) {
-            if (rollingPacketBuffer.pollFirst() != null) {
-                currentBufferSize.decrementAndGet();
+    // Wywoływane teraz z przekazaniem ID sensora
+    public void registerPacket(String sensorId, byte[] packetWithHeader) {
+        getOrCreateContext(sensorId).registerPacket(packetWithHeader);
+    }
+
+    public void handleAttackDetection(String sensorId, double probability, String description) {
+        getOrCreateContext(sensorId).startAttackOrUpdate(probability);
+    }
+
+    public void endAttack(String sensorId) {
+        SensorContext context = sensorContexts.get(sensorId);
+        if (context != null) {
+            Incident completedIncident = context.endAttack();
+            if (completedIncident != null) {
+                incidentRepository.put(completedIncident.getId(), completedIncident);
             }
         }
     }
 
-    // Wywoływane przez StatisticsAggregator, gdy prob > 70%
-    public synchronized void handleAttackDetection(double probability, String description) {
-        if (!isAttackOngoing) {
-            isAttackOngoing = true;
-            currentIncidentId = UUID.randomUUID().toString();
-            currentMaxProb = probability;
-            activeIncidentStream = new ByteArrayOutputStream();
-
-            if (pcapGlobalHeader != null) {
-                activeIncidentStream.writeBytes(pcapGlobalHeader);
-            }
-
-            // Opróżniamy bufor i aktualizujemy atomowy licznik
-            while (!rollingPacketBuffer.isEmpty()) {
-                byte[] pkt = rollingPacketBuffer.pollFirst();
-                if (pkt != null) {
-                    activeIncidentStream.writeBytes(pkt);
-                    currentBufferSize.decrementAndGet();
-                }
-            }
-        } else {
-            if (probability > currentMaxProb) currentMaxProb = probability;
-        }
+    // Metody dla kontrolera (UI), pozwalające filtrować dane na zakładki
+    public Collection<Incident> getIncidentsBySensor(String sensorId) {
+        return incidentRepository.values().stream()
+                .filter(inc -> sensorId.equals(inc.getSensorId()))
+                .collect(Collectors.toList());
     }
 
-    // Wywoływane, gdy opadną emocje (prob < 30% i minęło okno czasowe)
-    public synchronized void endAttack() {
-        if (isAttackOngoing && activeIncidentStream != null) {
-            Incident incident = new Incident(
-                    currentIncidentId,
-                    Instant.now(),
-                    "Wykryto anomalię sieciową (Z-Score Trigger)",
-                    currentMaxProb,
-                    activeIncidentStream.toByteArray()
-            );
-            incidentRepository.put(currentIncidentId, incident);
+    public Set<String> getActiveSensors() {
+        return sensorContexts.keySet();
+    }
 
-            // Czyszczenie stanu - najpierw flaga, potem zamknięcie strumienia
-            isAttackOngoing = false;
-            activeIncidentStream = null;
-        }
+    public Incident getIncident(String id) {
+        return incidentRepository.get(id);
     }
 
     public Collection<Incident> getAllIncidents() {
         return incidentRepository.values();
-    }
-
-    public Optional<Incident> getIncident(String id) {
-        return Optional.ofNullable(incidentRepository.get(id));
     }
 }

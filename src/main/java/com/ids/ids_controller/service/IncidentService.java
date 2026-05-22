@@ -7,20 +7,25 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 public class IncidentService {
 
     private byte[] pcapGlobalHeader;
-    // Pasywny bufor kołowy na pakiety (trzymamy max 2000 ostatnich pakietów)
+
+    // Pasywny bufor kołowy na pakiety
     private final Deque<byte[]> rollingPacketBuffer = new ConcurrentLinkedDeque<>();
     private final int MAX_ROLLING_SIZE = 2000;
+
+    // Atomowy licznik rozmiaru bufora - zapewnia operację O(1) zamiast O(n)
+    private final AtomicInteger currentBufferSize = new AtomicInteger(0);
 
     // Przechowalnia gotowych incydentów
     private final Map<String, Incident> incidentRepository = new ConcurrentHashMap<>();
 
-    // Flaga stanu ataku i aktywny strumień zapisu
-    private boolean isAttackOngoing = false;
+    // volatile gwarantuje, że wszystkie wątki natychmiast zobaczą zmianę stanu ataku
+    private volatile boolean isAttackOngoing = false;
     private ByteArrayOutputStream activeIncidentStream;
     private String currentIncidentId;
     private double currentMaxProb = 0.0;
@@ -34,15 +39,28 @@ public class IncidentService {
     // Wywoływane przez PcapReceiver dla KAŻDEGO pakietu
     public void registerPacket(byte[] packetWithHeader) {
         if (isAttackOngoing) {
-            // Trwa atak -> zapisujemy bezpośrednio do pliku incydentu
-            try {
-                activeIncidentStream.write(packetWithHeader);
-            } catch (Exception ignored) {}
+            // Blok synchronized chroni strumień przed równoległym zapisem i nagłym ustawieniem na null
+            synchronized (this) {
+                if (isAttackOngoing && activeIncidentStream != null) {
+                    try {
+                        activeIncidentStream.write(packetWithHeader);
+                    } catch (Exception ignored) {}
+                } else {
+                    // W razie mikro-wyścigu na przełomie stanu, zabezpieczamy pakiet w buforze
+                    pushToRollingBuffer(packetWithHeader);
+                }
+            }
         } else {
-            // Ruch normalny -> rotujemy w buforze pamięci podręcznej
-            rollingPacketBuffer.addLast(packetWithHeader);
-            if (rollingPacketBuffer.size() > MAX_ROLLING_SIZE) {
-                rollingPacketBuffer.pollFirst();
+            pushToRollingBuffer(packetWithHeader);
+        }
+    }
+
+    private void pushToRollingBuffer(byte[] packet) {
+        rollingPacketBuffer.addLast(packet);
+        // Bezpieczne i ekstremalnie szybkie sprawdzanie rozmiaru
+        if (currentBufferSize.incrementAndGet() > MAX_ROLLING_SIZE) {
+            if (rollingPacketBuffer.pollFirst() != null) {
+                currentBufferSize.decrementAndGet();
             }
         }
     }
@@ -55,15 +73,17 @@ public class IncidentService {
             currentMaxProb = probability;
             activeIncidentStream = new ByteArrayOutputStream();
 
-            // KROK KLUCZOWY: Wpisujemy nagłówek globalny PCAP
             if (pcapGlobalHeader != null) {
                 activeIncidentStream.writeBytes(pcapGlobalHeader);
             }
 
-            // Przepychamy pakiety z bufora kołowego (kontekst sprzed ataku)
+            // Opróżniamy bufor i aktualizujemy atomowy licznik
             while (!rollingPacketBuffer.isEmpty()) {
                 byte[] pkt = rollingPacketBuffer.pollFirst();
-                if (pkt != null) activeIncidentStream.writeBytes(pkt);
+                if (pkt != null) {
+                    activeIncidentStream.writeBytes(pkt);
+                    currentBufferSize.decrementAndGet();
+                }
             }
         } else {
             if (probability > currentMaxProb) currentMaxProb = probability;
@@ -73,7 +93,6 @@ public class IncidentService {
     // Wywoływane, gdy opadną emocje (prob < 30% i minęło okno czasowe)
     public synchronized void endAttack() {
         if (isAttackOngoing && activeIncidentStream != null) {
-            isAttackOngoing = false;
             Incident incident = new Incident(
                     currentIncidentId,
                     Instant.now(),
@@ -82,6 +101,9 @@ public class IncidentService {
                     activeIncidentStream.toByteArray()
             );
             incidentRepository.put(currentIncidentId, incident);
+
+            // Czyszczenie stanu - najpierw flaga, potem zamknięcie strumienia
+            isAttackOngoing = false;
             activeIncidentStream = null;
         }
     }

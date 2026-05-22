@@ -132,7 +132,7 @@ public class PacketDecoder {
                         System.arraycopy(data, offset + 16, ethernetRaw, 0, packetLen);
                         // Fabryka Pcap4j tworzy obiektowy model pakietu z surowych bajtów
                         Packet packet = EthernetPacket.newPacket(ethernetRaw, 0, ethernetRaw.length);
-                        featureExtractor.extract(packet);
+                        featureExtractor.extract(packet, sensorId);
                     } catch (Exception e) {
                         log.error("Błąd parsowania pakietu na offset {}: {}", offset, e.getMessage());
                     }

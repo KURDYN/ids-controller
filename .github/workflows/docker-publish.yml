@@ -23,7 +23,7 @@ jobs:
           images: kurdyn/ids-controller
           tags: |
             type=raw,value=latest,enable=${{ github.ref_name == 'main' || github.ref_name == 'master' }}
-            type=ref,event=branch
+            type=ref,event=branch,enable=${{ github.ref_name != 'main' && github.ref_name != 'master' }}
             
       - name: Build and push
         uses: docker/build-push-action@v5

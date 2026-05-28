@@ -6,6 +6,10 @@ COPY pom.xml .
 # Instalujemy ręcznie bibliotekę jFuzzyLogic (musi być w repozytorium Mavena w kontenerze!)
 COPY jFuzzyLogic.jar /app/
 RUN mvn install:install-file -Dfile=/app/jFuzzyLogic.jar -DgroupId=net.sourceforge.jFuzzyLogic -DartifactId=jFuzzyLogic -Dversion=1.2.1 -Dpackaging=jar
+
+COPY java-idmefv2-1.1.1.jar /app/
+RUN mvn install:install-file -Dfile=/app/java-idmefv2-1.1.1.jar -DgroupId=org.java-idmefv2 -DartifactId=java-idmefv2 -Dversion=1.1.1 -Dpackaging=jar
+
 # Kopiujemy resztę kodu i budujemy
 COPY src ./src
 RUN mvn clean package -DskipTests

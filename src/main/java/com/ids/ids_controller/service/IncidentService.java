@@ -2,19 +2,34 @@ package com.ids.ids_controller.service;
 
 import com.ids.ids_controller.model.Incident;
 import com.ids.ids_controller.model.SensorContext;
+import org.idmefv2.IDMEFException;
+import org.idmefv2.IDMEFValidator;
+import org.idmefv2.IDMEFObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.scheduler.Schedulers;
+
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Service
 public class IncidentService {
+    private static final Logger log = LoggerFactory.getLogger(BaselineService.class);
 
     // Mapa przechowująca osobny kontekst sieciowy dla każdego sensora
     private final Map<String, SensorContext> sensorContexts = new ConcurrentHashMap<>();
 
     // Repozytorium incydentów (warto rozważyć kluczowanie sensorId + incidentId)
     private final Map<String, Incident> incidentRepository = new ConcurrentHashMap<>();
+
+    private final WebClient siemClient = WebClient.create("http://127.0.0.1:4690");
+    private final IDMEFValidator idmefValidator = new IDMEFValidator();
 
     // Metoda pomocnicza pobierająca lub tworząca kontekst dla nowej sondy w locie
     private SensorContext getOrCreateContext(String sensorId) {
@@ -39,9 +54,81 @@ public class IncidentService {
         if (context != null) {
             Incident completedIncident = context.endAttack();
             if (completedIncident != null) {
+                String idmefJson = buildAndValidateIdmef(completedIncident);
+
+                Incident finalIncident = new Incident(
+                        completedIncident.id(),
+                        completedIncident.sensorId(),
+                        completedIncident.timestamp(),
+                        completedIncident.description(),
+                        completedIncident.maxProbability(),
+                        completedIncident.pcapData(),
+                        idmefJson
+                );
+
                 incidentRepository.put(completedIncident.getId(), completedIncident);
+
+                pushAlertToConcerto(idmefJson, finalIncident.id());
             }
         }
+    }
+
+    private String buildAndValidateIdmef(Incident incident) {
+        try {
+            IDMEFObject msg = new IDMEFObject();
+            msg.put("Version", "2.D.V05");
+            msg.put("ID", incident.id());
+
+            String isoTimestamp = DateTimeFormatter.ISO_INSTANT
+                    .format(incident.timestamp().atOffset(ZoneOffset.UTC));
+            msg.put("CreateTime", isoTimestamp);
+            msg.put("StartTime", isoTimestamp);
+            msg.put("Description", incident.description() != null ? incident.description() : "Wykryto anomalię sieciową Z-Score");
+            msg.put("Priority", incident.maxProbability() > 85.0 ? "High" : "Medium");
+            msg.put("Category", new String[]{"Attempt.Login"});
+
+            IDMEFObject analyzer = new IDMEFObject();
+            analyzer.put("IP", "127.0.0.1");
+            analyzer.put("Name", "IDS-Controller");
+            analyzer.put("Type", "Cyber");
+            analyzer.put("Model", "Fuzzy-ZScore-Engine 1.0");
+            analyzer.put("Category", new String[]{"IDS"});
+            analyzer.put("Data", new String[]{"Netflow"});
+            analyzer.put("Method", new String[]{"Statistical"});
+            msg.put("Analyzer", analyzer);
+
+            IDMEFObject sensor = new IDMEFObject();
+            sensor.put("IP", incident.getSensorId());
+            sensor.put("Name", "Probe-Agent");
+            sensor.put("Model", "PcapReceiver-Hook");
+
+            List<IDMEFObject> sensorList = new ArrayList<>();
+            sensorList.add(sensor);
+            msg.put("Sensor", sensorList);
+
+            idmefValidator.validate(msg);
+
+            return new String(msg.serialize());
+        } catch (IDMEFException e) {
+            log.error("Błąd walidacji schematu IDMEFv2 dla incydentu {}: {}", incident.id(), e.getMessage());
+            return "{\"error\": \"Invalid IDMEFv2 structure\"}";
+        } catch (Exception e) {
+            log.error("Błąd podczas serializacji wiadomości IDMEFv2: {}", e.getMessage());
+            return "{}";
+        }
+    }
+
+    private void pushAlertToConcerto(String jsonPayload, String incidentId) {
+        siemClient.post()
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(jsonPayload)
+                .retrieve()
+                .toBodilessEntity()
+                .subscribeOn(Schedulers.boundedElastic())
+                .subscribe(
+                        response -> log.info("Alert IDMEFv2 dla incydentu [{}] został pomyślnie wysłany do Concerto SIEM.", incidentId),
+                        error -> log.error("Nie udało się przesłać alertu IDMEFv2 do Concerto SIEM: {}", error.getMessage())
+                );
     }
 
     // Metody dla kontrolera (UI), pozwalające filtrować dane na zakładki

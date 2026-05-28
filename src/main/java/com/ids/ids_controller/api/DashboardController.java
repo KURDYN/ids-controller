@@ -73,4 +73,15 @@ public class DashboardController {
         return Flux.fromIterable(incidentService.getAllIncidents())
                 .subscribeOn(Schedulers.boundedElastic());
     }
+
+    @GetMapping(value = "/incidents/{id}/json", produces = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseBody
+    public Mono<ResponseEntity<String>> downloadIdmefJson(@PathVariable String id) {
+        return Mono.justOrEmpty(incidentService.getIncident(id))
+                .map(incident -> ResponseEntity.ok()
+                        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"idmef_" + id.substring(0,8) + ".json\"")
+                        .body(incident.idmefJson()))
+                .defaultIfEmpty(ResponseEntity.notFound().build())
+                .subscribeOn(Schedulers.boundedElastic());
+    }
 }

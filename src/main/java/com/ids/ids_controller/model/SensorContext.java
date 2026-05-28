@@ -87,7 +87,8 @@ public class SensorContext {
                     java.time.Instant.now(),
                     "Wykryto anomalię w segmencie: " + sensorId,
                     currentMaxProb,
-                    activeIncidentStream.toByteArray()
+                    activeIncidentStream.toByteArray(),
+                    ""
             );
 
             isAttackOngoing = false;

@@ -8,7 +8,8 @@ public record Incident(
         Instant timestamp,
         String description,
         double maxProbability,
-        byte[] pcapData
+        byte[] pcapData,
+        String idmefJson
 ) {
     public String getId() { return id; }
     public String getSensorId() { return sensorId; }

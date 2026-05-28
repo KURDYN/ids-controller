@@ -15,6 +15,7 @@ import reactor.core.scheduler.Schedulers;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -54,21 +55,28 @@ public class IncidentService {
         if (context != null) {
             Incident completedIncident = context.endAttack();
             if (completedIncident != null) {
-                String idmefJson = buildAndValidateIdmef(completedIncident);
+                CompletableFuture.runAsync(() -> {
+                    try {
+                        String idmefJson = buildAndValidateIdmef(completedIncident);
 
-                Incident finalIncident = new Incident(
-                        completedIncident.id(),
-                        completedIncident.sensorId(),
-                        completedIncident.timestamp(),
-                        completedIncident.description(),
-                        completedIncident.maxProbability(),
-                        completedIncident.pcapData(),
-                        idmefJson
-                );
+                        Incident finalIncident = new Incident(
+                                completedIncident.id(),
+                                completedIncident.sensorId(),
+                                completedIncident.timestamp(),
+                                completedIncident.description(),
+                                completedIncident.maxProbability(),
+                                completedIncident.pcapData(),
+                                idmefJson
+                        );
 
-                incidentRepository.put(completedIncident.getId(), completedIncident);
+                        // POPRAWKA: Zapisujemy finalIncident (zawierający wygenerowany JSON), a nie completedIncident
+                        incidentRepository.put(finalIncident.id(), finalIncident);
 
-                pushAlertToConcerto(idmefJson, finalIncident.id());
+                        pushAlertToConcerto(idmefJson, finalIncident.id());
+                    } catch (Exception e) {
+                        log.error("Błąd podczas asynchronicznego przetwarzania końca ataku dla sensora {}: {}", sensorId, e.getMessage());
+                    }
+                });
             }
         }
     }
@@ -76,7 +84,7 @@ public class IncidentService {
     private String buildAndValidateIdmef(Incident incident) {
         try {
             IDMEFObject msg = new IDMEFObject();
-            msg.put("Version", "2.D.V05");
+            msg.put("Version", "2.0.3");
             msg.put("ID", incident.id());
 
             String isoTimestamp = DateTimeFormatter.ISO_INSTANT

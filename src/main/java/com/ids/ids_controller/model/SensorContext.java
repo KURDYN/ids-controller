@@ -13,29 +13,44 @@ public class SensorContext {
     private final int MAX_ROLLING_SIZE = 2000;
     private final AtomicInteger currentBufferSize = new AtomicInteger(0);
 
+    // Flaga volatile gwarantuje natychmiastową widoczność zmian między wątkami bez blokowania
     private volatile boolean isAttackOngoing = false;
+
+    // DEDYKOWANY LOCK: Oddziela wątek statystyk od wątku przechwytywania pakietów
+    private final Object pcapLock = new Object();
     private ByteArrayOutputStream activeIncidentStream;
+
+    // ZABEZPIECZENIE: Ograniczenie liczby pakietów per incydent, by flood nie zabił pamięci RAM
+    private int attackPacketCount = 0;
+    private final int MAX_ATTACK_PACKETS = 5000;
+
     private String currentIncidentId;
-    private double currentMaxProb = 0.0;
+    private volatile double currentMaxProb = 0.0;
 
     public SensorContext(String sensorId) {
         this.sensorId = sensorId;
     }
 
-    // Gettery i metody operacji na stanie (wklejamy tu logikę z poprzedniego kroku, sprofilowaną pod jeden sensor)
-    public synchronized void setGlobalHeader(byte[] header) {
-        if (this.pcapGlobalHeader == null) {
-            this.pcapGlobalHeader = header.clone();
+    public void setGlobalHeader(byte[] header) {
+        synchronized (pcapLock) {
+            if (this.pcapGlobalHeader == null) {
+                this.pcapGlobalHeader = header.clone();
+            }
         }
     }
 
     public void registerPacket(byte[] packetWithHeader) {
         if (isAttackOngoing) {
-            synchronized (this) {
+            // Synchronizujemy tylko krytyczną sekcję zapisu do strumienia, a nie cały obiekt
+            synchronized (pcapLock) {
                 if (isAttackOngoing && activeIncidentStream != null) {
-                    try {
-                        activeIncidentStream.write(packetWithHeader);
-                    } catch (Exception ignored) {}
+                    if (attackPacketCount < MAX_ATTACK_PACKETS) {
+                        try {
+                            activeIncidentStream.write(packetWithHeader);
+                            attackPacketCount++;
+                        } catch (Exception ignored) {}
+                    }
+                    // Powyżej limitu pakiety są bezpiecznie pomijane, zapobiegając GC Freeze
                 } else {
                     pushToRollingBuffer(packetWithHeader);
                 }
@@ -54,46 +69,63 @@ public class SensorContext {
         }
     }
 
-    public synchronized Incident startAttackOrUpdate(double probability) {
-        if (!isAttackOngoing) {
-            isAttackOngoing = true;
-            currentIncidentId = java.util.UUID.randomUUID().toString();
+    public Incident startAttackOrUpdate(double probability) {
+        if (probability > currentMaxProb) {
             currentMaxProb = probability;
-            activeIncidentStream = new ByteArrayOutputStream();
+        }
 
-            if (pcapGlobalHeader != null) {
-                activeIncidentStream.writeBytes(pcapGlobalHeader);
-            }
+        if (!isAttackOngoing) {
+            synchronized (pcapLock) {
+                if (!isAttackOngoing) {
+                    isAttackOngoing = true;
+                    currentIncidentId = java.util.UUID.randomUUID().toString();
+                    activeIncidentStream = new ByteArrayOutputStream();
+                    attackPacketCount = 0;
 
-            while (!rollingPacketBuffer.isEmpty()) {
-                byte[] pkt = rollingPacketBuffer.pollFirst();
-                if (pkt != null) {
-                    activeIncidentStream.writeBytes(pkt);
-                    currentBufferSize.decrementAndGet();
+                    if (pcapGlobalHeader != null) {
+                        activeIncidentStream.writeBytes(pcapGlobalHeader);
+                    }
+
+                    while (!rollingPacketBuffer.isEmpty()) {
+                        byte[] pkt = rollingPacketBuffer.pollFirst();
+                        if (pkt != null) {
+                            activeIncidentStream.writeBytes(pkt);
+                            currentBufferSize.decrementAndGet();
+                            attackPacketCount++;
+                        }
+                    }
                 }
             }
-            return null; // Atak się zaczął
-        } else {
-            if (probability > currentMaxProb) currentMaxProb = probability;
-            return null;
         }
+        return null;
     }
 
-    public synchronized Incident endAttack() {
-        if (isAttackOngoing && activeIncidentStream != null) {
-            Incident incident = new Incident(
-                    currentIncidentId,
-                    sensorId,
-                    java.time.Instant.now(),
-                    "Wykryto anomalię w segmencie: " + sensorId,
-                    currentMaxProb,
-                    activeIncidentStream.toByteArray(),
-                    ""
-            );
+    public Incident endAttack() {
+        if (isAttackOngoing) {
+            synchronized (pcapLock) {
+                if (isAttackOngoing && activeIncidentStream != null) {
+                    // Pobieramy bezpieczną migawkę bajtów pod dedykowanym lockiem
+                    byte[] pcapData = activeIncidentStream.toByteArray();
 
-            isAttackOngoing = false;
-            activeIncidentStream = null;
-            return incident;
+                    Incident incident = new Incident(
+                            currentIncidentId,
+                            sensorId,
+                            java.time.Instant.now(),
+                            "Wykryto anomalię w segmencie: " + sensorId,
+                            currentMaxProb,
+                            pcapData,
+                            ""
+                    );
+
+                    // Resetowanie stanu powiązanego z pcap
+                    isAttackOngoing = false;
+                    activeIncidentStream = null;
+                    attackPacketCount = 0;
+                    currentMaxProb = 0.0;
+
+                    return incident;
+                }
+            }
         }
         return null;
     }

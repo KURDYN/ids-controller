@@ -29,7 +29,7 @@ public class IncidentService {
     // Repozytorium incydentów (warto rozważyć kluczowanie sensorId + incidentId)
     private final Map<String, Incident> incidentRepository = new ConcurrentHashMap<>();
 
-    private final WebClient siemClient = WebClient.create("http://127.0.0.1:4690");
+    private final WebClient siemClient = WebClient.create("http://172.16.0.99:4690");
     private final IDMEFValidator idmefValidator = new IDMEFValidator();
 
     // Metoda pomocnicza pobierająca lub tworząca kontekst dla nowej sondy w locie

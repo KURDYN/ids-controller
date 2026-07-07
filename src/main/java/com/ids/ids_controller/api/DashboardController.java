@@ -97,10 +97,10 @@ public class DashboardController {
                 SensorMetadata meta = assetMetadataService.getSensorMetadata(sensorId);
                 dtos.add(new SensorConfigDTO(
                         sensorId,
-                        meta != null ? meta.getName() : "",
-                        meta != null ? meta.getHostname() : "",
-                        meta != null ? meta.getModel() : "",
-                        meta != null ? meta.getLocation() : ""
+                        (meta != null && meta.getName() != null) ? meta.getName() : "null",
+                        (meta != null && meta.getHostname() != null) ? meta.getHostname() : "null",
+                        (meta != null && meta.getModel() != null) ? meta.getModel() : "null",
+                        (meta != null && meta.getLocation() != null) ? meta.getLocation() : "null"
                 ));
             }
             return Flux.fromIterable(dtos);

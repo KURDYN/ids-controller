@@ -1,6 +1,9 @@
 package com.ids.ids_controller.api;
 
+import com.ids.ids_controller.dto.SensorConfigDTO;
 import com.ids.ids_controller.model.Incident;
+import com.ids.ids_controller.model.SensorMetadata;
+import com.ids.ids_controller.service.AssetMetadataService;
 import com.ids.ids_controller.service.BaselineService;
 import com.ids.ids_controller.service.IncidentService;
 import com.ids.ids_controller.service.StatisticsAggregator;
@@ -9,30 +12,31 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Controller
 @RequestMapping("/dashboard")
 public class DashboardController {
 
+    private final AssetMetadataService assetMetadataService;
     private final BaselineService baselineService;
     private final StatisticsAggregator aggregator;
     private final IncidentService incidentService;
 
-    public DashboardController(BaselineService baselineService, StatisticsAggregator aggregator, IncidentService incidentService) {
+    public DashboardController(BaselineService baselineService, StatisticsAggregator aggregator, IncidentService incidentService, AssetMetadataService assetMetadataService) {
         this.baselineService = baselineService;
         this.aggregator = aggregator;
         this.incidentService = incidentService;
+        this.assetMetadataService = assetMetadataService;
     }
 
     @GetMapping
@@ -83,5 +87,35 @@ public class DashboardController {
                         .body(incident.idmefJson()))
                 .defaultIfEmpty(ResponseEntity.notFound().build())
                 .subscribeOn(Schedulers.boundedElastic());
+    }
+    @GetMapping("/configuration/sensors")
+    @ResponseBody
+    public Flux<SensorConfigDTO> getConfigurableSensors() {
+        return Flux.defer(() -> {
+            List<SensorConfigDTO> dtos = new ArrayList<>();
+            for (String sensorId : incidentService.getActiveSensors()) {
+                SensorMetadata meta = assetMetadataService.getSensorMetadata(sensorId);
+                dtos.add(new SensorConfigDTO(
+                        sensorId,
+                        meta != null ? meta.getName() : "",
+                        meta != null ? meta.getHostname() : "",
+                        meta != null ? meta.getModel() : "",
+                        meta != null ? meta.getLocation() : ""
+                ));
+            }
+            return Flux.fromIterable(dtos);
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    // Zapis metadanych sensora z formularza (Wywoływany przez JS Fetch API)
+    @PostMapping("/configuration/sensors/{id}")
+    @ResponseBody
+    public Mono<ResponseEntity<String>> saveSensorMetadata(
+            @PathVariable("id") String sensorId,
+            @RequestBody SensorMetadata metadata) {
+
+        return Mono.fromRunnable(() -> assetMetadataService.updateSensorMetadata(sensorId, metadata))
+                .subscribeOn(Schedulers.boundedElastic())
+                .thenReturn(ResponseEntity.ok("Zapisano metadane sensora"));
     }
 }

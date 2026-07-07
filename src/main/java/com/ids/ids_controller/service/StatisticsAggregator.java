@@ -27,9 +27,6 @@ public class StatisticsAggregator {
     // Mapa przechowująca metryki i wyniki analizy osobno dla każdego sensora
     private final Map<String, SensorMetrics> sensorMetricsMap = new ConcurrentHashMap<>();
 
-    /**
-     * Struktura przechowująca Twoje oryginalne pola statusowe per sensor
-     */
     private static class SensorMetrics {
         double lastProbability;
         double zSyn;

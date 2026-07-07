@@ -25,9 +25,6 @@ public class FeatureExtractor {
 
     private final String PROTECTED_IP = "172.18.0.3";
 
-    /**
-     * Wewnętrzna klasa grupująca Twoje oryginalne liczniki per sensor
-     */
     private static class SensorState {
         final LongAdder inboundBytes = new LongAdder();
         final LongAdder outboundBytes = new LongAdder();

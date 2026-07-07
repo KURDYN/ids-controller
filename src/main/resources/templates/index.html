@@ -42,6 +42,63 @@
             </table>
         </div>
     </div>
+    <div class="mt-5 p-4 border rounded bg-white shadow-sm">
+        <h4 class="mb-3 text-secondary">Zarządzanie Kontekstem i Metadanymi Sond (IDMEFv2)</h4>
+        <div class="table-responsive">
+            <table class="table table-striped align-middle">
+                <thead class="table-light">
+                <tr>
+                    <th>Adres IP Sondy</th>
+                    <th>Nazwa Biznesowa</th>
+                    <th>Hostname</th>
+                    <th>Model</th>
+                    <th>Lokalizacja Fizyczna</th>
+                    <th>Akcja</th>
+                </tr>
+                </thead>
+                <tbody id="config-table-body">
+                <tr>
+                    <td colspan="6" class="text-center text-muted">Brak aktywnych sond do konfiguracji.</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="modal fade" id="sensorEditModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title">Edycja Metadanych Sondy: <span id="modal-sensor-ip" class="font-monospace"></span></h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="sensor-edit-form">
+                        <div class="mb-3">
+                            <label class="form-label">Nazwa Biznesowa (Name)</label>
+                            <input type="text" class="form-control" id="form-sensor-name" placeholder="np. Sonda-Brzegowa-DMZ">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Nazwa Sieciowa (Hostname)</label>
+                            <input type="text" class="form-control" id="form-sensor-hostname" placeholder="np. probe-dmz.local">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Model Agenta (Model)</label>
+                            <input type="text" class="form-control" id="form-sensor-model" placeholder="np. PcapReceiver-Hook v2.1">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Lokalizacja (Location)</label>
+                            <input type="text" class="form-control" id="form-sensor-location" placeholder="np. Serwerownia A, Szafa RACK 4">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-close="modal">Anuluj</button>
+                    <button type="button" class="btn btn-primary" onclick="submitSensorMetadata()">Zapisz i archiwizuj</button>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -179,6 +236,76 @@
 
     setInterval(refreshIncidents, 5000);
     refreshIncidents();
+
+    // Inicjalizacja instancji Modala Bootstrapa
+    let sensorModal;
+    document.addEventListener("DOMContentLoaded", () => {
+        sensorModal = new bootstrap.Modal(document.getElementById('sensorEditModal'));
+        // Odświeżaj tabelę konfiguracji co 5 sekund, synchronicznie z incydentami
+        setInterval(refreshSensorConfig, 5000);
+        refreshSensorConfig();
+    });
+
+    function refreshSensorConfig() {
+        fetch('/dashboard/configuration/sensors')
+            .then(response => response.json())
+            .then(sensors => {
+                const tbody = document.getElementById('config-table-body');
+                if (sensors.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Brak aktywnych sond online. Skonfiguruj agentów.</td></tr>';
+                    return;
+                }
+
+                let html = '';
+                sensors.forEach(s => {
+                    html += `
+                    <tr>
+                        <td class="font-monospace fw-bold">${s.sensorId}</td>
+                        <td>${s.name || '<span class="text-muted small">Nieustawiona</span>'}</td>
+                        <td>${s.hostname || '<span class="text-muted small">Nieustawiony</span>'}</td>
+                        <td>${s.model || '<span class="text-muted small">Nieustawiony</span>'}</td>
+                        <td>${s.location || '<span class="text-muted small">Nieustawiona</span>'}</td>
+                        <td>
+                            <button class="btn btn-sm btn-dark" onclick="openEditModal('${s.sensorId}', '${s.name}', '${s.hostname}', '${s.model}', '${s.location}')">
+                                Edytuj
+                            </button>
+                        </td>
+                    </tr>
+                `;
+                });
+                tbody.innerHTML = html;
+            });
+    }
+
+    function openEditModal(id, name, hostname, model, location) {
+        document.getElementById('modal-sensor-ip').innerText = id;
+        document.getElementById('form-sensor-name').value = name === 'null' ? '' : name;
+        document.getElementById('form-sensor-hostname').value = hostname === 'null' ? '' : hostname;
+        document.getElementById('form-sensor-model').value = model === 'null' ? '' : model;
+        document.getElementById('form-sensor-location').value = location === 'null' ? '' : location;
+        sensorModal.show();
+    }
+
+    function submitSensorMetadata() {
+        const id = document.getElementById('modal-sensor-ip').innerText;
+        const payload = {
+            name: document.getElementById('form-sensor-name').value,
+            hostname: document.getElementById('form-sensor-hostname').value,
+            model: document.getElementById('form-sensor-model').value,
+            location: document.getElementById('form-sensor-location').value
+        };
+
+        fetch(`/dashboard/configuration/sensors/${id}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(response => {
+            if (response.ok) {
+                sensorModal.hide();
+                refreshSensorConfig();
+            }
+        });
+    }
 </script>
 </body>
 </html>

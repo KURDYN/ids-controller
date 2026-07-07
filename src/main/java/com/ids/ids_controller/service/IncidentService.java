@@ -2,6 +2,8 @@ package com.ids.ids_controller.service;
 
 import com.ids.ids_controller.model.Incident;
 import com.ids.ids_controller.model.SensorContext;
+import com.ids.ids_controller.model.SensorMetadata;
+import com.ids.ids_controller.model.TargetMetadata;
 import org.idmefv2.IDMEFException;
 import org.idmefv2.IDMEFValidator;
 import org.idmefv2.IDMEFObject;
@@ -29,8 +31,14 @@ public class IncidentService {
     // Repozytorium incydentów (warto rozważyć kluczowanie sensorId + incidentId)
     private final Map<String, Incident> incidentRepository = new ConcurrentHashMap<>();
 
+    private final AssetMetadataService assetMetadataService;
+
     private final WebClient siemClient = WebClient.create("http://172.16.0.99:4690");
     private final IDMEFValidator idmefValidator = new IDMEFValidator();
+
+    public IncidentService(AssetMetadataService assetMetadataService) {
+        this.assetMetadataService = assetMetadataService;
+    }
 
     // Metoda pomocnicza pobierająca lub tworząca kontekst dla nowej sondy w locie
     private SensorContext getOrCreateContext(String sensorId) {
@@ -69,7 +77,6 @@ public class IncidentService {
                                 idmefJson
                         );
 
-                        // POPRAWKA: Zapisujemy finalIncident (zawierający wygenerowany JSON), a nie completedIncident
                         incidentRepository.put(finalIncident.id(), finalIncident);
 
                         pushAlertToConcerto(idmefJson, finalIncident.id());
@@ -105,14 +112,31 @@ public class IncidentService {
             analyzer.put("Method", new String[]{"Statistical"});
             msg.put("Analyzer", analyzer);
 
+            SensorMetadata sensorMeta = assetMetadataService.getSensorMetadata(incident.getSensorId());
+
             IDMEFObject sensor = new IDMEFObject();
             sensor.put("IP", incident.getSensorId());
-            sensor.put("Name", "Probe-Agent");
-            sensor.put("Model", "PcapReceiver-Hook");
+            sensor.put("Name", (sensorMeta != null && !sensorMeta.getName().isBlank()) ? sensorMeta.getName() : "Probe-Agent-Generic");
+            sensor.put("Hostname", (sensorMeta != null && !sensorMeta.getHostname().isBlank()) ? sensorMeta.getHostname() : "unknown-host");
+            sensor.put("Model", (sensorMeta != null && !sensorMeta.getModel().isBlank()) ? sensorMeta.getModel() : "PcapReceiver-Hook");
+            sensor.put("Location", (sensorMeta != null && !sensorMeta.getLocation().isBlank()) ? sensorMeta.getLocation() : "Default DC");
 
             List<IDMEFObject> sensorList = new ArrayList<>();
             sensorList.add(sensor);
             msg.put("Sensor", sensorList);
+
+            TargetMetadata targetMeta = assetMetadataService.getTargetMetadata(incident.getSensorId()); // Uproszczenie: sensor przekazuje dane segmentu
+
+            if (targetMeta != null) {
+                IDMEFObject target = new IDMEFObject();
+                target.put("Name", targetMeta.getName());
+                target.put("Hostname", targetMeta.getHostname());
+                target.put("Location", targetMeta.getLocation());
+
+                List<IDMEFObject> targetList = new ArrayList<>();
+                targetList.add(target);
+                msg.put("Target", targetList);
+            }
 
             idmefValidator.validate(msg);
 

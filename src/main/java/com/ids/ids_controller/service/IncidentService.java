@@ -29,12 +29,14 @@ public class IncidentService {
     private final Map<String, Incident> incidentRepository = new ConcurrentHashMap<>();
 
     private final AssetMetadataService assetMetadataService;
+    private final FeatureExtractor featureExtractor;
 
     private final WebClient siemClient = WebClient.create("http://172.16.0.99:4690");
     private final IDMEFValidator idmefValidator = new IDMEFValidator();
 
-    public IncidentService(AssetMetadataService assetMetadataService) {
+    public IncidentService(AssetMetadataService assetMetadataService, FeatureExtractor featureExtractor) {
         this.assetMetadataService = assetMetadataService;
+        this.featureExtractor = featureExtractor;
     }
 
     private SensorContext getOrCreateContext(String sensorId) {
@@ -56,7 +58,11 @@ public class IncidentService {
     public void endAttack(String sensorId) {
         SensorContext context = sensorContexts.get(sensorId);
         if (context != null) {
-            Incident completedIncident = context.endAttack();
+            // Pobieramy wyciągnięte adresy IP bezpośrednio z FeatureExtractor
+            String targetIp = featureExtractor.getDetectedTargetIp(sensorId);
+            List<String> sourceIps = featureExtractor.getDetectedSourceIps(sensorId);
+
+            Incident completedIncident = context.endAttack(targetIp, sourceIps);
             if (completedIncident != null) {
                 CompletableFuture.runAsync(() -> {
                     try {

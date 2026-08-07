@@ -6,9 +6,7 @@ import org.pcap4j.packet.TcpPacket;
 import org.pcap4j.packet.IcmpV4CommonPacket;
 import org.springframework.stereotype.Service;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.LongAdder;
@@ -20,10 +18,7 @@ import org.slf4j.LoggerFactory;
 public class FeatureExtractor {
     private static final Logger log = LoggerFactory.getLogger(FeatureExtractor.class);
 
-    // Dynamiczna mapa przechowująca stan liczników niezależnie dla każdej sondy
     private final Map<String, SensorState> sensorStates = new ConcurrentHashMap<>();
-
-    private final String PROTECTED_IP = "172.18.0.3";
 
     private static class SensorState {
         final LongAdder inboundBytes = new LongAdder();
@@ -35,13 +30,15 @@ public class FeatureExtractor {
         final AtomicInteger synCount = new AtomicInteger(0);
         final AtomicInteger icmpCount = new AtomicInteger(0);
         final Map<String, Set<Integer>> portVarietyMap = new ConcurrentHashMap<>();
+
+        // Zbiory na potrzeby rejestracji IP w Incydentach
+        final Set<String> sourceIps = ConcurrentHashMap.newKeySet();
+        private volatile String lastTargetIp = null;
     }
 
-    // Nowa sygnatura metody przyjmująca sensorId
     public void extract(Packet packet, String sensorId) {
         if (isTrafficToController(packet)) return;
 
-        // Pobieramy istniejący stan sondy lub tworzymy nowy w locie (wątkobezpiecznie)
         SensorState state = sensorStates.computeIfAbsent(sensorId, k -> new SensorState());
 
         int packetSize = packet.length();
@@ -56,14 +53,13 @@ public class FeatureExtractor {
             srcIp = ipPkt.getHeader().getSrcAddr().getHostAddress();
             dstIp = ipPkt.getHeader().getDstAddr().getHostAddress();
 
-            // Kierunek ruchu (używamy stanu konkretnej sondy)
-            if (dstIp.equals(PROTECTED_IP)) {
-                state.inboundBytes.add(packetSize);
-            } else if (srcIp.equals(PROTECTED_IP)) {
-                state.outboundBytes.add(packetSize);
+            // Rejestracja adresów IP do incydentu (wykorzystuje Pcap4j)
+            state.sourceIps.add(srcIp);
+            if (!dstIp.equals("255.255.255.255") && !dstIp.startsWith("224.")) {
+                state.lastTargetIp = dstIp;
             }
 
-            // Unikalne przepływy (Flows)
+            // Unikalne przepływy
             state.activeFlows.add(srcIp + "->" + dstIp);
         }
 
@@ -71,12 +67,10 @@ public class FeatureExtractor {
             TcpPacket tcp = packet.get(TcpPacket.class);
             int dstPort = tcp.getHeader().getDstPort().valueAsInt();
 
-            // SYN Flood
             if (tcp.getHeader().getSyn() && !tcp.getHeader().getAck()) {
                 state.synCount.incrementAndGet();
             }
 
-            // NMAP / Entropia Portów
             if (!srcIp.isEmpty()) {
                 state.portVarietyMap.computeIfAbsent(srcIp, k -> ConcurrentHashMap.newKeySet()).add(dstPort);
             }
@@ -97,8 +91,19 @@ public class FeatureExtractor {
         return false;
     }
 
-    // --- Metody eksportujące dane dostosowane do obsługi konkretnego sensorId ---
+    // Pobieranie zgromadzonych IP dla Incydentu
 
+    public List<String> getDetectedSourceIps(String sensorId) {
+        SensorState state = sensorStates.get(sensorId);
+        return state == null ? Collections.emptyList() : new ArrayList<>(state.sourceIps);
+    }
+
+    public String getDetectedTargetIp(String sensorId) {
+        SensorState state = sensorStates.get(sensorId);
+        return state == null ? null : state.lastTargetIp;
+    }
+
+    // Standardowe metody pobierające statystyki
     public int getAndResetSynCount(String sensorId) {
         SensorState state = sensorStates.get(sensorId);
         return state == null ? 0 : state.synCount.getAndSet(0);
@@ -140,7 +145,6 @@ public class FeatureExtractor {
         return result;
     }
 
-    // Resetowanie statystyk konkretnej sondy po zebraniu danych przez Agregator
     public void resetAll(String sensorId) {
         SensorState state = sensorStates.get(sensorId);
         if (state != null) {
@@ -152,6 +156,7 @@ public class FeatureExtractor {
             state.outboundBytes.reset();
             state.portVarietyMap.clear();
             state.activeFlows.clear();
+            state.sourceIps.clear();
         }
     }
 }

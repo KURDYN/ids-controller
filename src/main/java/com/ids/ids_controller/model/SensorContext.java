@@ -101,7 +101,7 @@ public class SensorContext {
         return null;
     }
 
-    public Incident endAttack() {
+    public Incident endAttack(String targetIp, List<String> sourceIps) {
         if (isAttackOngoing) {
             synchronized (pcapLock) {
                 if (isAttackOngoing && activeIncidentStream != null) {
@@ -111,8 +111,8 @@ public class SensorContext {
                     Incident incident = new Incident(
                             currentIncidentId,
                             sensorId,
-                            null,
-                            List.of(),
+                            targetIp,
+                            sourceIps != null ? sourceIps : List.of(),
                             java.time.Instant.now(),
                             "Wykryto anomalię w segmencie: " + sensorId,
                             currentMaxProb,

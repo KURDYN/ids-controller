@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.File;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 @Service
@@ -51,6 +52,19 @@ public class AssetMetadataService {
 
     public TargetMetadata getTargetMetadata(String targetIp) {
         return config.getTargets().get(targetIp);
+    }
+
+    // Wykorzystywane przez UI do pobrania unikalnych celów
+    public Set<String> getActiveTargets() {
+        return config.getTargets().keySet();
+    }
+
+    // Automatyczna rejestracja pustego profilu Targetu, jeśli jeszcze nie istnieje w JSON
+    public synchronized void registerTargetIfAbsent(String targetIp) {
+        if (!config.getTargets().containsKey(targetIp)) {
+            config.getTargets().put(targetIp, new TargetMetadata("null", "null", "null"));
+            asyncExport();
+        }
     }
 
     private void asyncExport() {

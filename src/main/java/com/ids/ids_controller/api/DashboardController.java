@@ -1,8 +1,10 @@
 package com.ids.ids_controller.api;
 
 import com.ids.ids_controller.dto.SensorConfigDTO;
+import com.ids.ids_controller.dto.TargetConfigDTO;
 import com.ids.ids_controller.model.Incident;
 import com.ids.ids_controller.model.SensorMetadata;
+import com.ids.ids_controller.model.TargetMetadata;
 import com.ids.ids_controller.service.AssetMetadataService;
 import com.ids.ids_controller.service.BaselineService;
 import com.ids.ids_controller.service.IncidentService;
@@ -117,5 +119,35 @@ public class DashboardController {
         return Mono.fromRunnable(() -> assetMetadataService.updateSensorMetadata(sensorId, metadata))
                 .subscribeOn(Schedulers.boundedElastic())
                 .thenReturn(ResponseEntity.ok("Zapisano metadane sensora"));
+    }
+
+    @GetMapping("/configuration/targets")
+    @ResponseBody
+    public Flux<TargetConfigDTO> getConfigurableTargets() {
+        return Flux.defer(() -> {
+            List<TargetConfigDTO> dtos = new ArrayList<>();
+            // Zwracamy znane targety z wykrytych incydentów lub statycznej konfiguracji
+            for (String targetIp : incidentService.getActiveTargets()) {
+                TargetMetadata meta = assetMetadataService.getTargetMetadata(targetIp);
+                dtos.add(new TargetConfigDTO(
+                        targetIp,
+                        (meta != null && meta.getName() != null) ? meta.getName() : "null",
+                        (meta != null && meta.getHostname() != null) ? meta.getHostname() : "null",
+                        (meta != null && meta.getLocation() != null) ? meta.getLocation() : "null"
+                ));
+            }
+            return Flux.fromIterable(dtos);
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @PostMapping("/configuration/targets/{ip}")
+    @ResponseBody
+    public Mono<ResponseEntity<String>> saveTargetMetadata(
+            @PathVariable("ip") String targetIp,
+            @RequestBody TargetMetadata metadata) {
+
+        return Mono.fromRunnable(() -> assetMetadataService.updateTargetMetadata(targetIp, metadata))
+                .subscribeOn(Schedulers.boundedElastic())
+                .thenReturn(ResponseEntity.ok("Zapisano metadane targetu"));
     }
 }

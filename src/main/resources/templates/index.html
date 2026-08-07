@@ -18,7 +18,7 @@
         <div class="alert alert-info text-center">Oczekiwanie na strumień danych z sond sieciowych...</div>
     </div>
 
-    <!-- Sekcja Incydentów (Wspólna, poniżej wszystkich sond) -->
+    <!-- Sekcja Incydentów -->
     <div class="mt-5 p-4 border rounded bg-white shadow-sm">
         <h4 class="mb-3 text-secondary d-flex justify-content-between align-content-center">
             <span>Historia Incydentów i Forensics</span>
@@ -43,8 +43,10 @@
             </table>
         </div>
     </div>
+
+    <!-- Sekcja 1: Zarządzanie Metadanymi Sond (Sensors) -->
     <div class="mt-5 p-4 border rounded bg-white shadow-sm">
-        <h4 class="mb-3 text-secondary">Zarządzanie Kontekstem i Metadanymi Sond (IDMEFv2)</h4>
+        <h4 class="mb-3 text-secondary">Zarządzanie Sondami (Sensors) - IDMEFv2</h4>
         <div class="table-responsive">
             <table class="table table-striped align-middle">
                 <thead class="table-light">
@@ -66,6 +68,30 @@
         </div>
     </div>
 
+    <!-- Sekcja 2: Zarządzanie Metadanymi Celów (Targets) -->
+    <div class="mt-5 p-4 border rounded bg-white shadow-sm">
+        <h4 class="mb-3 text-secondary">Zarządzanie Celami (Targets / Chronione Zasoby)</h4>
+        <div class="table-responsive">
+            <table class="table table-striped align-middle">
+                <thead class="table-light">
+                <tr>
+                    <th>Adres IP Targetu</th>
+                    <th>Nazwa Biznesowa</th>
+                    <th>Hostname</th>
+                    <th>Lokalizacja Fizyczna</th>
+                    <th>Akcja</th>
+                </tr>
+                </thead>
+                <tbody id="target-config-table-body">
+                <tr>
+                    <td colspan="5" class="text-center text-muted">Brak zarejestrowanych celów do konfiguracji.</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Modal Edycji Sensora -->
     <div class="modal fade" id="sensorEditModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
@@ -94,12 +120,45 @@
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-close="modal">Anuluj</button>
-                    <button type="button" class="btn btn-primary" onclick="submitSensorMetadata()">Zapisz i archiwizuj</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+                    <button type="button" class="btn btn-primary" onclick="submitSensorMetadata()">Zapisz</button>
                 </div>
             </div>
         </div>
     </div>
+
+    <!-- Modal Edycji Targetu -->
+    <div class="modal fade" id="targetEditModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title">Edycja Metadanych Targetu: <span id="modal-target-ip" class="font-monospace"></span></h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="target-edit-form">
+                        <div class="mb-3">
+                            <label class="form-label">Nazwa Biznesowa (Name)</label>
+                            <input type="text" class="form-control" id="form-target-name" placeholder="np. Baza-Danych-Prod">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Nazwa Sieciowa (Hostname)</label>
+                            <input type="text" class="form-control" id="form-target-hostname" placeholder="np. db-server.local">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Lokalizacja (Location)</label>
+                            <input type="text" class="form-control" id="form-target-location" placeholder="np. Chmura Prywatna - Strefa 1">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+                    <button type="button" class="btn btn-primary" onclick="submitTargetMetadata()">Zapisz</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
 </div>
 
 <script>
@@ -111,7 +170,6 @@
 
         let totalSensorsHtml = '';
 
-        // Iterujemy po każdej sondzie w otrzymanej mapie
         Object.keys(data).forEach(sensorId => {
             const sensorData = data[sensorId];
             const prob = sensorData.anomalyProbability || 0;
@@ -128,7 +186,6 @@
                 cardBorder = 'border-danger';
             }
 
-            // Generowanie mikro-kart Z-Score dla tej konkretnej sondy
             let gridHtml = '';
             Object.keys(sensorData).forEach(key => {
                 if (key === 'anomalyProbability') return;
@@ -155,7 +212,6 @@
                 `;
             });
 
-            // Składanie całej sekcji dla pojedynczego segmentu sieci
             totalSensorsHtml += `
                 <div class="card mb-4 shadow-sm border-0 ${cardBorder}">
                     <div class="card-header bg-dark text-white fw-bold d-flex justify-content-between align-items-center py-3">
@@ -214,17 +270,10 @@
                             <td>
                                 <div class="btn-group" role="group">
                                     <a href="/dashboard/incidents/${inc.id}/pcap" class="btn btn-sm btn-outline-primary d-inline-flex align-items-center">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-download me-1" viewBox="0 0 16 16">
-                                          <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/>
-                                          <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/>
-                                        </svg> PCAP
+                                        PCAP
                                     </a>
-
                                     <a href="/dashboard/incidents/${inc.id}/json" class="btn btn-sm btn-outline-dark d-inline-flex align-items-center">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-file-earmark-code me-1" viewBox="0 0 16 16">
-                                          <path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5zm-3 0A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4.5z"/>
-                                          <path d="M8.646 6.646a.5.5 0 0 1 .708 0l2 2a.5.5 0 0 1 0 .708l-2 2a.5.5 0 0 1-.708-.708L10.293 9 8.646 7.354a.5.5 0 0 1 0-.708zm-1.292 0a.5.5 0 0 0-.708 0l-2 2a.5.5 0 0 0 0 .708l2 2a.5.5 0 0 0 .708-.708L5.707 9l1.647-1.646a.5.5 0 0 0 0-.708z"/>
-                                        </svg> IDMEFv2
+                                        IDMEFv2
                                     </a>
                                 </div>
                             </td>
@@ -239,34 +288,46 @@
     refreshIncidents();
 
     let sensorModal;
+    let targetModal;
+
     document.addEventListener("DOMContentLoaded", () => {
         sensorModal = new bootstrap.Modal(document.getElementById('sensorEditModal'));
-        // Odświeżaj tabelę konfiguracji co 5 sekund, synchronicznie z incydentami
+        targetModal = new bootstrap.Modal(document.getElementById('targetEditModal'));
+
         setInterval(refreshSensorConfig, 5000);
+        setInterval(refreshTargetConfig, 5000);
+
         refreshSensorConfig();
+        refreshTargetConfig();
     });
 
+    // Funkcje Obsługi Sond
     function refreshSensorConfig() {
         fetch('/dashboard/configuration/sensors')
             .then(response => response.json())
             .then(sensors => {
                 const tbody = document.getElementById('config-table-body');
-                if (sensors.length === 0) {
+                if (!sensors || sensors.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Brak aktywnych sond online. Skonfiguruj agentów.</td></tr>';
                     return;
                 }
 
                 let html = '';
                 sensors.forEach(s => {
+                    const nameDisplay = (s.name === 'null' || !s.name) ? '<span class="text-muted small">Nieustawiona</span>' : s.name;
+                    const hostDisplay = (s.hostname === 'null' || !s.hostname) ? '<span class="text-muted small">Nieustawiony</span>' : s.hostname;
+                    const modelDisplay = (s.model === 'null' || !s.model) ? '<span class="text-muted small">Nieustawiony</span>' : s.model;
+                    const locDisplay = (s.location === 'null' || !s.location) ? '<span class="text-muted small">Nieustawiona</span>' : s.location;
+
                     html += `
                     <tr>
                         <td class="font-monospace fw-bold">${s.sensorId}</td>
-                        <td>${s.name || '<span class="text-muted small">Nieustawiona</span>'}</td>
-                        <td>${s.hostname || '<span class="text-muted small">Nieustawiony</span>'}</td>
-                        <td>${s.model || '<span class="text-muted small">Nieustawiony</span>'}</td>
-                        <td>${s.location || '<span class="text-muted small">Nieustawiona</span>'}</td>
+                        <td>${nameDisplay}</td>
+                        <td>${hostDisplay}</td>
+                        <td>${modelDisplay}</td>
+                        <td>${locDisplay}</td>
                         <td>
-                            <button class="btn btn-sm btn-dark" onclick="openEditModal('${s.sensorId}', '${s.name}', '${s.hostname}', '${s.model}', '${s.location}')">
+                            <button class="btn btn-sm btn-dark" onclick="openSensorEditModal('${s.sensorId}', '${s.name}', '${s.hostname}', '${s.model}', '${s.location}')">
                                 Edytuj
                             </button>
                         </td>
@@ -277,7 +338,7 @@
             });
     }
 
-    function openEditModal(id, name, hostname, model, location) {
+    function openSensorEditModal(id, name, hostname, model, location) {
         document.getElementById('modal-sensor-ip').innerText = id;
         document.getElementById('form-sensor-name').value = name === 'null' ? '' : name;
         document.getElementById('form-sensor-hostname').value = hostname === 'null' ? '' : hostname;
@@ -303,6 +364,69 @@
             if (response.ok) {
                 sensorModal.hide();
                 refreshSensorConfig();
+            }
+        });
+    }
+
+    // Funkcje Obsługi Targetów
+    function refreshTargetConfig() {
+        fetch('/dashboard/configuration/targets')
+            .then(response => response.json())
+            .then(targets => {
+                const tbody = document.getElementById('target-config-table-body');
+                if (!targets || targets.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Brak zarejestrowanych celów do konfiguracji.</td></tr>';
+                    return;
+                }
+
+                let html = '';
+                targets.forEach(t => {
+                    const nameDisplay = (t.name === 'null' || !t.name) ? '<span class="text-muted small">Nieustawiona</span>' : t.name;
+                    const hostDisplay = (t.hostname === 'null' || !t.hostname) ? '<span class="text-muted small">Nieustawiony</span>' : t.hostname;
+                    const locDisplay = (t.location === 'null' || !t.location) ? '<span class="text-muted small">Nieustawiona</span>' : t.location;
+
+                    html += `
+                    <tr>
+                        <td class="font-monospace fw-bold">${t.targetIp}</td>
+                        <td>${nameDisplay}</td>
+                        <td>${hostDisplay}</td>
+                        <td>${locDisplay}</td>
+                        <td>
+                            <button class="btn btn-sm btn-dark" onclick="openTargetEditModal('${t.targetIp}', '${t.name}', '${t.hostname}', '${t.location}')">
+                                Edytuj
+                            </button>
+                        </td>
+                    </tr>
+                `;
+                });
+                tbody.innerHTML = html;
+            });
+    }
+
+    function openTargetEditModal(ip, name, hostname, location) {
+        document.getElementById('modal-target-ip').innerText = ip;
+        document.getElementById('form-target-name').value = name === 'null' ? '' : name;
+        document.getElementById('form-target-hostname').value = hostname === 'null' ? '' : hostname;
+        document.getElementById('form-target-location').value = location === 'null' ? '' : location;
+        targetModal.show();
+    }
+
+    function submitTargetMetadata() {
+        const ip = document.getElementById('modal-target-ip').innerText;
+        const payload = {
+            name: document.getElementById('form-target-name').value,
+            hostname: document.getElementById('form-target-hostname').value,
+            location: document.getElementById('form-target-location').value
+        };
+
+        fetch(`/dashboard/configuration/targets/${ip}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(response => {
+            if (response.ok) {
+                targetModal.hide();
+                refreshTargetConfig();
             }
         });
     }

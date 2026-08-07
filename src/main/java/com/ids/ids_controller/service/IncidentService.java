@@ -23,12 +23,9 @@ import java.util.stream.Collectors;
 
 @Service
 public class IncidentService {
-    private static final Logger log = LoggerFactory.getLogger(BaselineService.class);
+    private static final Logger log = LoggerFactory.getLogger(IncidentService.class);
 
-    // Mapa przechowująca osobny kontekst sieciowy dla każdego sensora
     private final Map<String, SensorContext> sensorContexts = new ConcurrentHashMap<>();
-
-    // Repozytorium incydentów (warto rozważyć kluczowanie sensorId + incidentId)
     private final Map<String, Incident> incidentRepository = new ConcurrentHashMap<>();
 
     private final AssetMetadataService assetMetadataService;
@@ -40,7 +37,6 @@ public class IncidentService {
         this.assetMetadataService = assetMetadataService;
     }
 
-    // Metoda pomocnicza pobierająca lub tworząca kontekst dla nowej sondy w locie
     private SensorContext getOrCreateContext(String sensorId) {
         return sensorContexts.computeIfAbsent(sensorId, SensorContext::new);
     }
@@ -49,7 +45,6 @@ public class IncidentService {
         getOrCreateContext(sensorId).setGlobalHeader(header);
     }
 
-    // Wywoływane teraz z przekazaniem ID sensora
     public void registerPacket(String sensorId, byte[] packetWithHeader) {
         getOrCreateContext(sensorId).registerPacket(packetWithHeader);
     }
@@ -70,6 +65,8 @@ public class IncidentService {
                         Incident finalIncident = new Incident(
                                 completedIncident.id(),
                                 completedIncident.sensorId(),
+                                completedIncident.targetIp(),
+                                completedIncident.sourceIps(),
                                 completedIncident.timestamp(),
                                 completedIncident.description(),
                                 completedIncident.maxProbability(),
@@ -102,6 +99,7 @@ public class IncidentService {
             msg.put("Priority", incident.maxProbability() > 85.0 ? "High" : "Medium");
             msg.put("Category", new String[]{"Attempt.Login"});
 
+            // ANALYZER
             IDMEFObject analyzer = new IDMEFObject();
             analyzer.put("IP", "127.0.0.1");
             analyzer.put("Name", "IDS-Controller");
@@ -112,30 +110,47 @@ public class IncidentService {
             analyzer.put("Method", new String[]{"Statistical"});
             msg.put("Analyzer", analyzer);
 
+            // SENSOR
             SensorMetadata sensorMeta = assetMetadataService.getSensorMetadata(incident.getSensorId());
 
             IDMEFObject sensor = new IDMEFObject();
             sensor.put("IP", incident.getSensorId());
-            sensor.put("Name", (sensorMeta != null && !sensorMeta.getName().isBlank()) ? sensorMeta.getName() : "Probe-Agent-Generic");
-            sensor.put("Hostname", (sensorMeta != null && !sensorMeta.getHostname().isBlank()) ? sensorMeta.getHostname() : "unknown-host");
-            sensor.put("Model", (sensorMeta != null && !sensorMeta.getModel().isBlank()) ? sensorMeta.getModel() : "PcapReceiver-Hook");
-            sensor.put("Location", (sensorMeta != null && !sensorMeta.getLocation().isBlank()) ? sensorMeta.getLocation() : "Default DC");
+            sensor.put("Name", (sensorMeta != null && sensorMeta.getName() != null && !sensorMeta.getName().equals("null")) ? sensorMeta.getName() : "Probe-Agent-Generic");
+            sensor.put("Hostname", (sensorMeta != null && sensorMeta.getHostname() != null && !sensorMeta.getHostname().equals("null")) ? sensorMeta.getHostname() : "unknown-host");
+            sensor.put("Model", (sensorMeta != null && sensorMeta.getModel() != null && !sensorMeta.getModel().equals("null")) ? sensorMeta.getModel() : "PcapReceiver-Hook");
+            sensor.put("Location", (sensorMeta != null && sensorMeta.getLocation() != null && !sensorMeta.getLocation().equals("null")) ? sensorMeta.getLocation() : "Default DC");
 
             List<IDMEFObject> sensorList = new ArrayList<>();
             sensorList.add(sensor);
             msg.put("Sensor", sensorList);
 
-            TargetMetadata targetMeta = assetMetadataService.getTargetMetadata(incident.getSensorId()); // Uproszczenie: sensor przekazuje dane segmentu
+            // TARGET
+            String targetIp = incident.getTargetIp() != null ? incident.getTargetIp() : incident.getSensorId();
+            assetMetadataService.registerTargetIfAbsent(targetIp);
+            TargetMetadata targetMeta = assetMetadataService.getTargetMetadata(targetIp);
 
+            IDMEFObject target = new IDMEFObject();
+            target.put("IP", targetIp);
             if (targetMeta != null) {
-                IDMEFObject target = new IDMEFObject();
-                target.put("Name", targetMeta.getName());
-                target.put("Hostname", targetMeta.getHostname());
-                target.put("Location", targetMeta.getLocation());
+                if (targetMeta.getName() != null && !targetMeta.getName().equals("null")) target.put("Name", targetMeta.getName());
+                if (targetMeta.getHostname() != null && !targetMeta.getHostname().equals("null")) target.put("Hostname", targetMeta.getHostname());
+                if (targetMeta.getLocation() != null && !targetMeta.getLocation().equals("null")) target.put("Location", targetMeta.getLocation());
+            }
 
-                List<IDMEFObject> targetList = new ArrayList<>();
-                targetList.add(target);
-                msg.put("Target", targetList);
+            List<IDMEFObject> targetList = new ArrayList<>();
+            targetList.add(target);
+            msg.put("Target", targetList);
+
+            // SOURCE (ATAKUJĄCY)
+            List<String> sources = incident.getSourceIps();
+            if (sources != null && !sources.isEmpty()) {
+                List<IDMEFObject> sourceList = new ArrayList<>();
+                for (String srcIp : sources) {
+                    IDMEFObject source = new IDMEFObject();
+                    source.put("IP", srcIp);
+                    sourceList.add(source);
+                }
+                msg.put("Source", sourceList);
             }
 
             idmefValidator.validate(msg);
@@ -163,7 +178,6 @@ public class IncidentService {
                 );
     }
 
-    // Metody dla kontrolera (UI), pozwalające filtrować dane na zakładki
     public Collection<Incident> getIncidentsBySensor(String sensorId) {
         return incidentRepository.values().stream()
                 .filter(inc -> sensorId.equals(inc.getSensorId()))
@@ -172,6 +186,10 @@ public class IncidentService {
 
     public Set<String> getActiveSensors() {
         return sensorContexts.keySet();
+    }
+
+    public Set<String> getActiveTargets() {
+        return assetMetadataService.getActiveTargets();
     }
 
     public Incident getIncident(String id) {

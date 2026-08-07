@@ -2,6 +2,7 @@ package com.ids.ids_controller.model;
 
 import java.io.ByteArrayOutputStream;
 import java.util.Deque;
+import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -110,6 +111,8 @@ public class SensorContext {
                     Incident incident = new Incident(
                             currentIncidentId,
                             sensorId,
+                            null,
+                            List.of(),
                             java.time.Instant.now(),
                             "Wykryto anomalię w segmencie: " + sensorId,
                             currentMaxProb,

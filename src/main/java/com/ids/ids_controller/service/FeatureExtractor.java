@@ -92,7 +92,7 @@ public class FeatureExtractor {
 
     private boolean isTrafficToController(Packet packet) {
         if (packet.contains(TcpPacket.class)) {
-            return packet.get(TcpPacket.class).getHeader().getDstPort().valueAsInt() == 9000 || packet.get(TcpPacket.class).getHeader().getSrcPort().valueAsInt() == 9000;
+            return packet.get(TcpPacket.class).getHeader().getDstPort().valueAsInt() == 9000;
         }
         return false;
     }

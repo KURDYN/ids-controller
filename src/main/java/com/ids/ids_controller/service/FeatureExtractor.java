@@ -56,9 +56,7 @@ public class FeatureExtractor {
                     ipPkt.getHeader().getSrcAddr().isMulticastAddress()) {
                 return;
             }
-            if (packet.get(TcpPacket.class).getHeader().getDstPort().valueAsInt() != 9000 && packet.get(TcpPacket.class).getHeader().getSrcPort().valueAsInt() != 9000) {
-                srcIp = ipPkt.getHeader().getSrcAddr().getHostAddress();
-            }
+            srcIp = ipPkt.getHeader().getSrcAddr().getHostAddress();
             dstIp = ipPkt.getHeader().getDstAddr().getHostAddress();
 
             // Rejestracja adresów IP do incydentu (wykorzystuje Pcap4j)

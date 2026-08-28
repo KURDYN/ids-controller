@@ -119,6 +119,44 @@
         </div>
     </div>
 
+    <!-- Sekcja 3: Zarządzanie Celami SIEM (Broadcast) -->
+    <div class="mt-5 p-4 border rounded bg-white shadow-sm">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="m-0 text-secondary">Zarządzanie Celami SIEM (Broadcast Alertów)</h4>
+            <div>
+                <button class="btn btn-sm btn-success me-1" onclick="openAddSiemModal()">
+                    + Dodaj Cel SIEM
+                </button>
+                <div class="btn-group" role="group">
+                    <button class="btn btn-sm btn-outline-secondary" onclick="exportConfig()">
+                        Eksportuj JSON
+                    </button>
+                    <button class="btn btn-sm btn-outline-primary" onclick="triggerImport()">
+                        Importuj JSON
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-striped align-middle">
+                <thead class="table-light">
+                <tr>
+                    <th>Nazwa SIEM</th>
+                    <th>Host / Adres IP</th>
+                    <th>Port</th>
+                    <th>Aktywny</th>
+                    <th>Akcje</th>
+                </tr>
+                </thead>
+                <tbody id="siem-config-table-body">
+                <tr>
+                    <td colspan="5" class="text-center text-muted">Brak zarejestrowanych celów SIEM.</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
     <!-- Modal Edycji Sensora -->
     <div class="modal fade" id="sensorEditModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
@@ -218,6 +256,43 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
                     <button type="button" class="btn btn-success" onclick="submitAddTarget()">Dodaj Target</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Dodawania/Edycji Celu SIEM -->
+    <div class="modal fade" id="siemModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title" id="siem-modal-title">Dodaj Cel SIEM</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="siem-form">
+                        <input type="hidden" id="form-siem-id">
+                        <div class="mb-3">
+                            <label class="form-label">Nazwa SIEM <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="form-siem-name" placeholder="np. Wazuh SIEM Central" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Host / IP <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="form-siem-host" placeholder="np. 10.0.0.50 lub siem.company.local" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Port <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="form-siem-port" placeholder="np. 8080" required>
+                        </div>
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="form-siem-enabled" checked>
+                            <label class="form-check-label" for="form-siem-enabled">Aktywny (Broadcast włączony)</label>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+                    <button type="button" class="btn btn-success" id="siem-submit-btn" onclick="submitSiemTarget()">Zapisz SIEM</button>
                 </div>
             </div>
         </div>
@@ -354,17 +429,23 @@
     let sensorModal;
     let targetModal;
     let targetAddModal;
+    let siemModal;
+
+    let siemCache = [];
 
     document.addEventListener("DOMContentLoaded", () => {
         sensorModal = new bootstrap.Modal(document.getElementById('sensorEditModal'));
         targetModal = new bootstrap.Modal(document.getElementById('targetEditModal'));
         targetAddModal = new bootstrap.Modal(document.getElementById('targetAddModal'));
+        siemModal = new bootstrap.Modal(document.getElementById('siemModal'));
 
         setInterval(refreshSensorConfig, 5000);
         setInterval(refreshTargetConfig, 5000);
+        setInterval(refreshSiemConfig, 5000);
 
         refreshSensorConfig();
         refreshTargetConfig();
+        refreshSiemConfig();
     });
 
     // Funkcje Obsługi Sond
@@ -530,6 +611,119 @@
         });
     }
 
+    // Funkcje Obsługi Celów SIEM
+    function refreshSiemConfig() {
+        fetch('/dashboard/configuration/siem')
+            .then(response => response.json())
+            .then(siems => {
+                siemCache = siems || [];
+                const tbody = document.getElementById('siem-config-table-body');
+                if (!siems || siems.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Brak zarejestrowanych celów SIEM.</td></tr>';
+                    return;
+                }
+
+                let html = '';
+                siems.forEach(s => {
+                    const statusBadge = s.enabled
+                        ? '<span class="badge bg-success">TAK</span>'
+                        : '<span class="badge bg-secondary">NIE</span>';
+
+                    html += `
+                    <tr>
+                        <td class="fw-bold">${s.name}</td>
+                        <td class="font-monospace">${s.host}</td>
+                        <td class="font-monospace">${s.port}</td>
+                        <td>${statusBadge}</td>
+                        <td>
+                            <div class="btn-group" role="group">
+                                <button class="btn btn-sm btn-dark" onclick="openEditSiemModal('${s.id}')">
+                                    Edytuj
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" onclick="deleteSiemTarget('${s.id}')">
+                                    Usuń
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                });
+                tbody.innerHTML = html;
+            });
+    }
+
+    function openAddSiemModal() {
+        document.getElementById('siem-modal-title').innerText = 'Dodaj Cel SIEM';
+        document.getElementById('siem-submit-btn').innerText = 'Dodaj SIEM';
+        document.getElementById('form-siem-id').value = '';
+        document.getElementById('form-siem-name').value = '';
+        document.getElementById('form-siem-host').value = '';
+        document.getElementById('form-siem-port').value = '';
+        document.getElementById('form-siem-enabled').checked = true;
+        siemModal.show();
+    }
+
+    function openEditSiemModal(id) {
+        const item = siemCache.find(s => s.id === id);
+        if (!item) return;
+
+        document.getElementById('siem-modal-title').innerText = 'Edycja Celu SIEM';
+        document.getElementById('siem-submit-btn').innerText = 'Zapisz Zmiany';
+        document.getElementById('form-siem-id').value = item.id;
+        document.getElementById('form-siem-name').value = item.name;
+        document.getElementById('form-siem-host').value = item.host;
+        document.getElementById('form-siem-port').value = item.port;
+        document.getElementById('form-siem-enabled').checked = item.enabled;
+        siemModal.show();
+    }
+
+    function submitSiemTarget() {
+        const id = document.getElementById('form-siem-id').value;
+        const name = document.getElementById('form-siem-name').value.trim();
+        const host = document.getElementById('form-siem-host').value.trim();
+        const portVal = document.getElementById('form-siem-port').value.trim();
+
+        if (!name || !host || !portVal) {
+            alert('Wypełnij wszystkie wymagane pola (Nazwa, Host, Port).');
+            return;
+        }
+
+        const payload = {
+            id: id || null,
+            name: name,
+            host: host,
+            port: parseInt(portVal, 10),
+            enabled: document.getElementById('form-siem-enabled').checked
+        };
+
+        fetch('/dashboard/configuration/siem', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(response => {
+            if (response.ok) {
+                siemModal.hide();
+                refreshSiemConfig();
+            } else {
+                alert('Błąd podczas zapisywania celu SIEM.');
+            }
+        });
+    }
+
+    function deleteSiemTarget(id) {
+        if (!confirm('Czy na pewno chcesz usunąć ten cel SIEM?')) return;
+
+        fetch(`/dashboard/configuration/siem/${id}`, {
+            method: 'DELETE'
+        }).then(response => {
+            if (response.ok) {
+                refreshSiemConfig();
+            } else {
+                alert('Błąd podczas usuwania celu SIEM.');
+            }
+        });
+    }
+
     // Obsługa Eksportu i Importu Konfiguracji
     function exportConfig() {
         window.location.href = '/dashboard/configuration/export';
@@ -555,6 +749,7 @@
                     alert('Konfiguracja została pomyślnie zaimportowana.');
                     refreshSensorConfig();
                     refreshTargetConfig();
+                    refreshSiemConfig();
                 } else {
                     alert('Błąd podczas importu pliku konfiguracji.');
                 }

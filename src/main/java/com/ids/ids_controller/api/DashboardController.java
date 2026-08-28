@@ -2,10 +2,7 @@ package com.ids.ids_controller.api;
 
 import com.ids.ids_controller.dto.SensorConfigDTO;
 import com.ids.ids_controller.dto.TargetConfigDTO;
-import com.ids.ids_controller.model.FullAssetMetadata;
-import com.ids.ids_controller.model.Incident;
-import com.ids.ids_controller.model.SensorMetadata;
-import com.ids.ids_controller.model.TargetMetadata;
+import com.ids.ids_controller.model.*;
 import com.ids.ids_controller.service.AssetMetadataService;
 import com.ids.ids_controller.service.BaselineService;
 import com.ids.ids_controller.service.IncidentService;
@@ -197,5 +194,30 @@ public class DashboardController {
                         return Mono.just(ResponseEntity.badRequest().body("Błąd podczas parsowania pliku JSON: " + e.getMessage()));
                     }
                 });
+    }
+
+    // --- KONFIGURACJA SIEM TARGETS ---
+
+    @GetMapping("/configuration/siem")
+    @ResponseBody
+    public Flux<SiemTargetMetadata> getSiemTargets() {
+        return Flux.defer(() -> Flux.fromIterable(assetMetadataService.getSiemTargets()))
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @PostMapping("/configuration/siem")
+    @ResponseBody
+    public Mono<ResponseEntity<String>> saveSiemTarget(@RequestBody SiemTargetMetadata target) {
+        return Mono.fromRunnable(() -> assetMetadataService.addOrUpdateSiemTarget(target))
+                .subscribeOn(Schedulers.boundedElastic())
+                .thenReturn(ResponseEntity.ok("Zapisano konfigurację celu SIEM"));
+    }
+
+    @DeleteMapping("/configuration/siem/{id}")
+    @ResponseBody
+    public Mono<ResponseEntity<String>> deleteSiemTarget(@PathVariable("id") String id) {
+        return Mono.fromRunnable(() -> assetMetadataService.deleteSiemTarget(id))
+                .subscribeOn(Schedulers.boundedElastic())
+                .thenReturn(ResponseEntity.ok("Usunięto cel SIEM"));
     }
 }

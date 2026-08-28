@@ -4,6 +4,7 @@ import com.ids.ids_controller.model.Incident;
 import com.ids.ids_controller.model.SensorContext;
 import com.ids.ids_controller.model.SensorMetadata;
 import com.ids.ids_controller.model.TargetMetadata;
+import com.ids.ids_controller.model.SiemTargetMetadata;
 import org.idmefv2.IDMEFException;
 import org.idmefv2.IDMEFValidator;
 import org.idmefv2.IDMEFObject;
@@ -12,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
 
 import java.time.ZoneOffset;
@@ -31,10 +33,10 @@ public class IncidentService {
     private final AssetMetadataService assetMetadataService;
     private final FeatureExtractor featureExtractor;
 
-    private final WebClient siemClient = WebClient.create("http://172.16.0.99:4690");
     private final IDMEFValidator idmefValidator = new IDMEFValidator();
 
-    public IncidentService(AssetMetadataService assetMetadataService, FeatureExtractor featureExtractor) {
+    public IncidentService(AssetMetadataService assetMetadataService,
+                           FeatureExtractor featureExtractor) {
         this.assetMetadataService = assetMetadataService;
         this.featureExtractor = featureExtractor;
     }
@@ -58,7 +60,6 @@ public class IncidentService {
     public void endAttack(String sensorId) {
         SensorContext context = sensorContexts.get(sensorId);
         if (context != null) {
-            // Pobieramy wyciągnięte adresy IP bezpośrednio z FeatureExtractor
             String targetIp = featureExtractor.getDetectedTargetIp(sensorId);
             List<String> sourceIps = featureExtractor.getDetectedSourceIps(sensorId);
 
@@ -82,7 +83,8 @@ public class IncidentService {
 
                         incidentRepository.put(finalIncident.id(), finalIncident);
 
-                        pushAlertToConcerto(idmefJson, finalIncident.id());
+                        // Broadcast do wszystkich skonfigurowanych odbiorców SIEM
+                        broadcastAlertToSiems(idmefJson, finalIncident.id());
                     } catch (Exception e) {
                         log.error("Błąd podczas asynchronicznego przetwarzania końca ataku dla sensora {}: {}", sensorId, e.getMessage());
                     }
@@ -147,7 +149,7 @@ public class IncidentService {
             targetList.add(target);
             msg.put("Target", targetList);
 
-            // SOURCE (ATAKUJĄCY)
+            // SOURCE
             List<String> sources = incident.getSourceIps();
             if (sources != null && !sources.isEmpty()) {
                 List<IDMEFObject> sourceList = new ArrayList<>();
@@ -171,17 +173,36 @@ public class IncidentService {
         }
     }
 
-    private void pushAlertToConcerto(String jsonPayload, String incidentId) {
-        siemClient.post()
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(jsonPayload)
-                .retrieve()
-                .toBodilessEntity()
+    /**
+     * Równoległe wysyłanie alertu IDMEFv2 do wszystkich aktywnych odbiorców SIEM (Wariant Broadcast).
+     */
+    private void broadcastAlertToSiems(String jsonPayload, String incidentId) {
+        List<SiemTargetMetadata> targets = assetMetadataService.getSiemTargets().stream()
+                .filter(SiemTargetMetadata::isEnabled)
+                .toList();
+
+        if (targets.isEmpty()) {
+            log.warn("Brak aktywnych celów SIEM. Alert dla incydentu [{}] nie został wysłany.", incidentId);
+            return;
+        }
+
+        Flux.fromIterable(targets)
+                .flatMap(target -> {
+                    String url = String.format("http://%s:%d", target.getHost(), target.getPort());
+
+                    // Tworzenie klienta w locie dla danego adresu URI
+                    return WebClient.create(url)
+                            .post()
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .bodyValue(jsonPayload)
+                            .retrieve()
+                            .toBodilessEntity()
+                            .doOnSuccess(response -> log.info("Alert IDMEFv2 [{}] pomyślnie wysłany do SIEM: {} ({})", incidentId, target.getName(), url))
+                            .doOnError(error -> log.error("Błąd wysyłania alertu IDMEFv2 [{}] do SIEM: {} ({}): {}", incidentId, target.getName(), url, error.getMessage()))
+                            .onErrorComplete();
+                })
                 .subscribeOn(Schedulers.boundedElastic())
-                .subscribe(
-                        response -> log.info("Alert IDMEFv2 dla incydentu [{}] został pomyślnie wysłany do Concerto SIEM.", incidentId),
-                        error -> log.error("Nie udało się przesłać alertu IDMEFv2 do Concerto SIEM: {}", error.getMessage())
-                );
+                .subscribe();
     }
 
     public Collection<Incident> getIncidentsBySensor(String sensorId) {

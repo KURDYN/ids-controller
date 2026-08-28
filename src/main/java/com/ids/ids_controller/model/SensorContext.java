@@ -1,5 +1,9 @@
 package com.ids.ids_controller.model;
 
+import com.ids.ids_controller.service.IncidentService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.ByteArrayOutputStream;
 import java.util.Deque;
 import java.util.List;
@@ -7,6 +11,8 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class SensorContext {
+    private static final Logger log = LoggerFactory.getLogger(IncidentService.class);
+
     private final String sensorId;
     private byte[] pcapGlobalHeader;
 
@@ -107,6 +113,7 @@ public class SensorContext {
                 if (isAttackOngoing && activeIncidentStream != null) {
                     // Pobieramy bezpieczną migawkę bajtów pod dedykowanym lockiem
                     byte[] pcapData = activeIncidentStream.toByteArray();
+                    log.warn("src ips: {}", sourceIps);
 
                     Incident incident = new Incident(
                             currentIncidentId,

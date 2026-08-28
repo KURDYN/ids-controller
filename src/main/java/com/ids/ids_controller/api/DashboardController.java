@@ -2,6 +2,7 @@ package com.ids.ids_controller.api;
 
 import com.ids.ids_controller.dto.SensorConfigDTO;
 import com.ids.ids_controller.dto.TargetConfigDTO;
+import com.ids.ids_controller.model.FullAssetMetadata;
 import com.ids.ids_controller.model.Incident;
 import com.ids.ids_controller.model.SensorMetadata;
 import com.ids.ids_controller.model.TargetMetadata;
@@ -9,16 +10,21 @@ import com.ids.ids_controller.service.AssetMetadataService;
 import com.ids.ids_controller.service.BaselineService;
 import com.ids.ids_controller.service.IncidentService;
 import com.ids.ids_controller.service.StatisticsAggregator;
+import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
+import tools.jackson.databind.ObjectMapper;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -33,12 +39,14 @@ public class DashboardController {
     private final BaselineService baselineService;
     private final StatisticsAggregator aggregator;
     private final IncidentService incidentService;
+    private final ObjectMapper objectMapper;
 
-    public DashboardController(BaselineService baselineService, StatisticsAggregator aggregator, IncidentService incidentService, AssetMetadataService assetMetadataService) {
+    public DashboardController(BaselineService baselineService, StatisticsAggregator aggregator, IncidentService incidentService, AssetMetadataService assetMetadataService, ObjectMapper objectMapper) {
         this.baselineService = baselineService;
         this.aggregator = aggregator;
         this.incidentService = incidentService;
         this.assetMetadataService = assetMetadataService;
+        this.objectMapper = objectMapper;
     }
 
     @GetMapping
@@ -149,5 +157,45 @@ public class DashboardController {
         return Mono.fromRunnable(() -> assetMetadataService.updateTargetMetadata(targetIp, metadata))
                 .subscribeOn(Schedulers.boundedElastic())
                 .thenReturn(ResponseEntity.ok("Zapisano metadane targetu"));
+    }
+
+    @GetMapping(value = "/configuration/export", produces = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseBody
+    public Mono<ResponseEntity<FullAssetMetadata>> exportConfiguration() {
+        return Mono.fromSupplier(() -> ResponseEntity.ok()
+                        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"asset_config.json\"")
+                        .body(assetMetadataService.getFullConfiguration())) // Wymaga dodania gettera w AssetMetadataService
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @PostMapping(value = "/configuration/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseBody
+    public Mono<ResponseEntity<String>> importConfiguration(@RequestPart("file") FilePart filePart) {
+        return filePart.content()
+                .map(dataBuffer -> {
+                    byte[] bytes = new byte[dataBuffer.readableByteCount()];
+                    dataBuffer.read(bytes);
+                    DataBufferUtils.release(dataBuffer);
+                    return bytes;
+                })
+                .reduce(new ByteArrayOutputStream(), (baos, bytes) -> {
+                    try {
+                        baos.write(bytes);
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                    return baos;
+                })
+                .map(baos -> baos.toByteArray())
+                .publishOn(Schedulers.boundedElastic())
+                .flatMap(bytes -> {
+                    try {
+                        FullAssetMetadata newConfig = objectMapper.readValue(bytes, FullAssetMetadata.class);
+                        assetMetadataService.importFullConfiguration(newConfig); // Wymaga metody w AssetMetadataService
+                        return Mono.just(ResponseEntity.ok("Import zakończony pomyślnie."));
+                    } catch (Exception e) {
+                        return Mono.just(ResponseEntity.badRequest().body("Błąd podczas parsowania pliku JSON: " + e.getMessage()));
+                    }
+                });
     }
 }

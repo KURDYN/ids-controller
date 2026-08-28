@@ -12,4 +12,5 @@ public class FullAssetMetadata {
 
     public Map<String, TargetMetadata> getTargets() { return targets; }
     public void setTargets(Map<String, TargetMetadata> targets) { this.targets = targets; }
+
 }

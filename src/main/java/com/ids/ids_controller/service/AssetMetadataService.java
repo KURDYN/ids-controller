@@ -59,6 +59,22 @@ public class AssetMetadataService {
         return config.getTargets().keySet();
     }
 
+    public FullAssetMetadata getFullConfiguration() {
+        return this.config;
+    }
+
+    public synchronized void importFullConfiguration(FullAssetMetadata newConfig) {
+        if (newConfig != null) {
+            if (newConfig.getSensors() != null) {
+                this.config.getSensors().putAll(newConfig.getSensors());
+            }
+            if (newConfig.getTargets() != null) {
+                this.config.getTargets().putAll(newConfig.getTargets());
+            }
+            asyncExport();
+        }
+    }
+
     // Automatyczna rejestracja pustego profilu Targetu, jeśli jeszcze nie istnieje w JSON
     public synchronized void registerTargetIfAbsent(String targetIp) {
         if (!config.getTargets().containsKey(targetIp)) {

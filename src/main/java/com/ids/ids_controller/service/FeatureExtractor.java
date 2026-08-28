@@ -39,6 +39,7 @@ public class FeatureExtractor {
     public void extract(Packet packet, String sensorId) {
         if (isTrafficToController(packet)) return;
 
+
         SensorState state = sensorStates.computeIfAbsent(sensorId, k -> new SensorState());
 
         int packetSize = packet.length();
@@ -50,6 +51,11 @@ public class FeatureExtractor {
 
         if (packet.contains(IpV4Packet.class)) {
             IpV4Packet ipPkt = packet.get(IpV4Packet.class);
+            if (ipPkt.getHeader().getSrcAddr().isLoopbackAddress() ||
+                    ipPkt.getHeader().getSrcAddr().isAnyLocalAddress() ||
+                    ipPkt.getHeader().getSrcAddr().isMulticastAddress()) {
+                return;
+            }
             srcIp = ipPkt.getHeader().getSrcAddr().getHostAddress();
             dstIp = ipPkt.getHeader().getDstAddr().getHostAddress();
 
@@ -86,7 +92,7 @@ public class FeatureExtractor {
 
     private boolean isTrafficToController(Packet packet) {
         if (packet.contains(TcpPacket.class)) {
-            return packet.get(TcpPacket.class).getHeader().getDstPort().valueAsInt() == 9000;
+            return packet.get(TcpPacket.class).getHeader().getDstPort().valueAsInt() == 9000 || packet.get(TcpPacket.class).getHeader().getSrcPort().valueAsInt() == 9000;
         }
         return false;
     }

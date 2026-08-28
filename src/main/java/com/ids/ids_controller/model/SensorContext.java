@@ -113,7 +113,6 @@ public class SensorContext {
                 if (isAttackOngoing && activeIncidentStream != null) {
                     // Pobieramy bezpieczną migawkę bajtów pod dedykowanym lockiem
                     byte[] pcapData = activeIncidentStream.toByteArray();
-                    log.warn("src ips: {}", sourceIps);
 
                     Incident incident = new Incident(
                             currentIncidentId,

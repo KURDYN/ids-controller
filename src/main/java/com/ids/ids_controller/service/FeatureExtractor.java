@@ -95,7 +95,12 @@ public class FeatureExtractor {
 
     public List<String> getDetectedSourceIps(String sensorId) {
         SensorState state = sensorStates.get(sensorId);
-        return state == null ? Collections.emptyList() : new ArrayList<>(state.sourceIps);
+        if (state == null) return Collections.emptyList();
+
+        // Pobieramy kopię zebranych IP i czyścimy bufor pod kątem kolejnych incydentów
+        List<String> ips = new ArrayList<>(state.sourceIps);
+        state.sourceIps.clear();
+        return ips;
     }
 
     public String getDetectedTargetIp(String sensorId) {
@@ -156,7 +161,6 @@ public class FeatureExtractor {
             state.outboundBytes.reset();
             state.portVarietyMap.clear();
             state.activeFlows.clear();
-            state.sourceIps.clear();
         }
     }
 }

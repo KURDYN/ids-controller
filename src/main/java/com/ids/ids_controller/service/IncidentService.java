@@ -61,7 +61,6 @@ public class IncidentService {
             // Pobieramy wyciągnięte adresy IP bezpośrednio z FeatureExtractor
             String targetIp = featureExtractor.getDetectedTargetIp(sensorId);
             List<String> sourceIps = featureExtractor.getDetectedSourceIps(sensorId);
-            log.warn("src ips: {}", sourceIps);
 
             Incident completedIncident = context.endAttack(targetIp, sourceIps);
             if (completedIncident != null) {

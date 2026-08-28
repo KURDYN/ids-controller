@@ -70,7 +70,12 @@
 
     <!-- Sekcja 2: Zarządzanie Metadanymi Celów (Targets) -->
     <div class="mt-5 p-4 border rounded bg-white shadow-sm">
-        <h4 class="mb-3 text-secondary">Zarządzanie Celami (Targets / Chronione Zasoby)</h4>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="m-0 text-secondary">Zarządzanie Celami (Targets / Chronione Zasoby)</h4>
+            <button class="btn btn-sm btn-success" onclick="openAddTargetModal()">
+                + Dodaj Target
+            </button>
+        </div>
         <div class="table-responsive">
             <table class="table table-striped align-middle">
                 <thead class="table-light">
@@ -154,6 +159,42 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
                     <button type="button" class="btn btn-primary" onclick="submitTargetMetadata()">Zapisz</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Dodawania Targetu -->
+    <div class="modal fade" id="targetAddModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title">Dodaj Nowy Target</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="target-add-form">
+                        <div class="mb-3">
+                            <label class="form-label">Adres IP Targetu <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="form-add-target-ip" placeholder="np. 192.168.1.100" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Nazwa Biznesowa (Name)</label>
+                            <input type="text" class="form-control" id="form-add-target-name" placeholder="np. Baza-Danych-Prod">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Nazwa Sieciowa (Hostname)</label>
+                            <input type="text" class="form-control" id="form-add-target-hostname" placeholder="np. db-server.local">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Lokalizacja (Location)</label>
+                            <input type="text" class="form-control" id="form-add-target-location" placeholder="np. Chmura Prywatna - Strefa 1">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+                    <button type="button" class="btn btn-success" onclick="submitAddTarget()">Dodaj Target</button>
                 </div>
             </div>
         </div>
@@ -289,10 +330,12 @@
 
     let sensorModal;
     let targetModal;
+    let targetAddModal;
 
     document.addEventListener("DOMContentLoaded", () => {
         sensorModal = new bootstrap.Modal(document.getElementById('sensorEditModal'));
         targetModal = new bootstrap.Modal(document.getElementById('targetEditModal'));
+        targetAddModal = new bootstrap.Modal(document.getElementById('targetAddModal'));
 
         setInterval(refreshSensorConfig, 5000);
         setInterval(refreshTargetConfig, 5000);
@@ -426,6 +469,39 @@
         }).then(response => {
             if (response.ok) {
                 targetModal.hide();
+                refreshTargetConfig();
+            }
+        });
+    }
+
+    function openAddTargetModal() {
+        document.getElementById('form-add-target-ip').value = '';
+        document.getElementById('form-add-target-name').value = '';
+        document.getElementById('form-add-target-hostname').value = '';
+        document.getElementById('form-add-target-location').value = '';
+        targetAddModal.show();
+    }
+
+    function submitAddTarget() {
+        const ip = document.getElementById('form-add-target-ip').value.trim();
+        if (!ip) {
+            alert('Wprowadź adres IP targetu.');
+            return;
+        }
+
+        const payload = {
+            name: document.getElementById('form-add-target-name').value,
+            hostname: document.getElementById('form-add-target-hostname').value,
+            location: document.getElementById('form-add-target-location').value
+        };
+
+        fetch(`/dashboard/configuration/targets/${ip}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(response => {
+            if (response.ok) {
+                targetAddModal.hide();
                 refreshTargetConfig();
             }
         });

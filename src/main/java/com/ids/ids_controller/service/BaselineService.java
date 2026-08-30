@@ -29,15 +29,14 @@ public class BaselineService {
     public void addObservation(String featureName, double rawValue, double zScoreValue, double anomalyProbability) {
         BaselineStats stats = currentStats.computeIfAbsent(featureName, k -> new BaselineStats());
 
-        if (anomalyProbability > 60.0 && stats.getCount() > 30) {
-            log.warn("Pominięto aktualizację baseline dla {} - wykryto silną anomalię", featureName);
-            return;
+        // 1. Profil uczący aktualizujemy TYLKO wtedy, gdy nie ma silnej anomalii (ochrona przed zatruciem baseline)
+        if (anomalyProbability <= 60.0 || stats.getCount() <= 30) {
+            stats.update(rawValue);
+        } else {
+            log.warn("Pominięto aktualizację baseline dla {} - wykryto silną anomalię ({})", featureName, anomalyProbability);
         }
 
-        // 1. Profil uczący aktualizuje się surową wartością
-        stats.update(rawValue);
-
-        // 2. Do historii dla wykresu trafia wyliczony Z-Score
+        // 2. Do historii dla wykresu ZAWSZE dodajemy próbkę Z-Score (nawet podczas ataku)
         Deque<Double> history = historyMap.computeIfAbsent(featureName, k -> new ConcurrentLinkedDeque<>());
         if (history.size() >= MAX_WINDOW_SIZE) {
             history.pollFirst();

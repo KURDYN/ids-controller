@@ -46,7 +46,7 @@ public class DashboardController {
         this.objectMapper = objectMapper;
     }
 
-    @GetMapping({ "/dashboard"})
+    @GetMapping({"/", "/dashboard"})
     public String dashboard() {
         return "dashboard";
     }

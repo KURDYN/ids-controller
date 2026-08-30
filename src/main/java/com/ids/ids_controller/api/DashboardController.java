@@ -51,7 +51,22 @@ public class DashboardController {
         return "dashboard";
     }
 
-    // Nowa struktura: Map<SensorID, Map<NazwaMetryki, Wartosc>>
+    @GetMapping
+    public String dashboard(Model model) {
+        return "dashboard";
+    }
+
+    @GetMapping("/sensors")
+    public String sensors() {
+        return "sensors";
+    }
+
+    // Widok Metadanych Assetów
+    @GetMapping("/metadata")
+    public String metadata() {
+        return "metadata";
+    }
+
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @ResponseBody
     public Flux<Map<String, Map<String, Double>>> streamMetrics() {

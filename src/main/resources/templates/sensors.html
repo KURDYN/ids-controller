@@ -39,25 +39,61 @@
 <div class="container pb-5">
   <h3 class="mb-4 text-secondary">Podłączone Sondy i Metryki Sieciowe</h3>
 
-  <!-- Dynamiczny kontener na karty sond sieciowych -->
   <div id="sensors-container">
-    <div class="alert alert-info text-center">Oczekiwanie na strumień danych z sond sieciowych...</div>
+    <div class="alert alert-info text-center" id="initial-loader">Oczekiwanie na strumień danych z sond sieciowych...</div>
   </div>
 </div>
 
 <script>
-  const eventSource = new EventSource("/dashboard/stream");
   const charts = {};
+  const sensorMetadataCache = {};
+
+  // Pobieranie metadanych z konfiguracji backendu
+  async function fetchMetadata() {
+    try {
+      const res = await fetch('/dashboard/configuration/sensors');
+      if (res.ok) {
+        const sensors = await res.json();
+        sensors.forEach(s => {
+          sensorMetadataCache[s.id] = s;
+        });
+      }
+    } catch (e) {
+      console.error("Błąd podczas pobierania metadanych sensorów:", e);
+    }
+  }
+
+  // Odświeżamy metadane co 30 sekund
+  fetchMetadata();
+  setInterval(fetchMetadata, 30000);
+
+  const eventSource = new EventSource("/dashboard/stream");
 
   eventSource.onmessage = (event) => {
     const data = JSON.parse(event.data);
     const container = document.getElementById('sensors-container');
+    const loader = document.getElementById('initial-loader');
 
-    let totalSensorsHtml = '';
+    if (loader) loader.remove();
 
-    Object.keys(data).forEach(sensorId => {
+    const sensorIds = Object.keys(data);
+
+    if (sensorIds.length === 0) {
+      if (!document.getElementById('no-sensors-alert')) {
+        container.innerHTML = '<div id="no-sensors-alert" class="alert alert-warning text-center">Brak podłączonych sond. Uruchom dumpcap na maszynach monitorujących.</div>';
+      }
+      return;
+    }
+
+    const noSensorsAlert = document.getElementById('no-sensors-alert');
+    if (noSensorsAlert) noSensorsAlert.remove();
+
+    sensorIds.forEach(sensorId => {
       const sensorData = data[sensorId];
+      const safeId = sensorId.replace(/\./g, '_');
+      const cardId = `sensor-card-${safeId}`;
       const prob = sensorData.anomalyProbability || 0;
+      const meta = sensorMetadataCache[sensorId] || {};
 
       let barClass = 'bg-primary';
       let badgeClass = 'bg-success';
@@ -71,102 +107,213 @@
         cardBorder = 'border-danger';
       }
 
+      // Jeśli karta dla sensora nie istnieje, twórzmy jej strukturę jednorazowo
+      if (!document.getElementById(cardId)) {
+        const cardHtml = `
+          <div class="card mb-4 shadow-sm ${cardBorder}" id="${cardId}">
+              <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center py-3">
+                  <div>
+                      <h5 class="m-0 font-monospace d-inline">Sonda: ${sensorId}</h5>
+                      <span class="ms-3 text-light small font-monospace" id="meta-${safeId}">
+                          ${meta.name ? `| ${meta.name} (${meta.hostname || ''}) - ${meta.location || ''}` : ''}
+                      </span>
+                  </div>
+                  <span class="badge ${badgeClass}" id="badge-${safeId}">${statusText}</span>
+              </div>
+              <div class="card-body bg-white p-4">
+                  <div class="row align-items-center mb-4">
+                      <div class="col-md-3">
+                          <span class="text-muted small d-block">Prawdopodobieństwo anomalii</span>
+                          <span class="h3 fw-bold m-0" id="prob-text-${safeId}">${prob.toFixed(2)}%</span>
+                      </div>
+                      <div class="col-md-9">
+                          <div class="progress" style="height: 22px;">
+                              <div class="progress-bar ${barClass}" id="prob-bar-${safeId}" role="progressbar" style="width: ${prob}%"></div>
+                          </div>
+                      </div>
+                  </div>
+                  <div class="row mb-4" id="metrics-grid-${safeId}"></div>
+                  <div class="p-3 bg-light rounded border">
+                      <h6 class="text-muted mb-3">Interaktywny wykres metryk i anomalii (Na żywo)</h6>
+                      <canvas id="chart-${safeId}" style="max-height: 250px;"></canvas>
+                  </div>
+              </div>
+          </div>
+        `;
+        container.insertAdjacentHTML('beforeend', cardHtml);
+      } else {
+        // Aktualizacja nagłówków i pasków bez przebudowy DOM
+        const badge = document.getElementById(`badge-${safeId}`);
+        badge.className = `badge ${badgeClass}`;
+        badge.innerText = statusText;
+
+        const probText = document.getElementById(`prob-text-${safeId}`);
+        probText.innerText = `${prob.toFixed(2)}%`;
+
+        const probBar = document.getElementById(`prob-bar-${safeId}`);
+        probBar.className = `progress-bar ${barClass}`;
+        probBar.style.width = `${prob}%`;
+
+        const metaSpan = document.getElementById(`meta-${safeId}`);
+        if (meta.name) {
+          metaSpan.innerText = `| ${meta.name} (${meta.hostname || ''}) - ${meta.location || ''}`;
+        }
+      }
+
+      // Aktualizacja kafelków Z-Score
+      const metricsGrid = document.getElementById(`metrics-grid-${safeId}`);
       let gridHtml = '';
       Object.keys(sensorData).forEach(key => {
         if (key === 'anomalyProbability') return;
-
         const val = sensorData[key];
         const isAnomaly = Math.abs(val) > 3.0;
         const alertClass = isAnomaly ? 'border-danger text-danger' : 'border-light';
         const bgClass = isAnomaly ? 'bg-danger-subtle' : 'bg-white';
 
         gridHtml += `
-                    <div class="col-md-4 col-lg-2 mb-3">
-                        <div class="card h-100 shadow-sm ${alertClass} ${bgClass} metric-card">
-                            <div class="card-body text-center p-2">
-                                <div class="text-uppercase text-muted mb-1" style="font-size: 0.65rem; letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                                    ${key.replace(/_/g, ' ')}
-                                </div>
-                                <div class="h5 mb-0 fw-bold font-monospace">
-                                    ${val.toFixed(3)}
-                                </div>
-                                <small class="text-muted" style="font-size: 0.7rem;">Z-Score</small>
-                            </div>
-                        </div>
-                    </div>
-                `;
+          <div class="col-md-4 col-lg-2 mb-3">
+              <div class="card h-100 shadow-sm ${alertClass} ${bgClass} metric-card">
+                  <div class="card-body text-center p-2">
+                      <div class="text-uppercase text-muted mb-1" style="font-size: 0.65rem; letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${key}">
+                          ${key.replace(/_/g, ' ')}
+                      </div>
+                      <div class="h5 mb-0 fw-bold font-monospace">
+                          ${val.toFixed(3)}
+                      </div>
+                      <small class="text-muted" style="font-size: 0.7rem;">Z-Score</small>
+                  </div>
+              </div>
+          </div>
+        `;
       });
+      metricsGrid.innerHTML = gridHtml;
 
-      totalSensorsHtml += `
-                <div class="card mb-4 shadow-sm border-0 ${cardBorder}">
-                    <div class="card-header bg-dark text-white fw-bold d-flex justify-content-between align-items-center py-3">
-                        <h5 class="m-0 font-monospace">Segment sieci (Sonda IP): ${sensorId}</h5>
-                        <span class="badge ${badgeClass}">${statusText}</span>
-                    </div>
-                    <div class="card-body bg-white p-4">
-                        <div class="row align-items-center mb-4">
-                            <div class="col-md-3">
-                                <span class="text-muted small d-block">Prawdopodobieństwo anomalii</span>
-                                <span class="h3 fw-bold m-0">${prob.toFixed(2)}%</span>
-                            </div>
-                            <div class="col-md-9">
-                                <div class="progress" style="height: 22px;">
-                                    <div class="progress-bar ${barClass}" role="progressbar" style="width: ${prob}%"></div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="row mb-4">
-                            ${gridHtml}
-                        </div>
-                        <div class="p-3 bg-light rounded border">
-                            <h6 class="text-muted mb-3">Interaktywny wykres aktywności (24h)</h6>
-                            <canvas id="chart-${sensorId.replace(/\./g, '_')}" style="max-height: 200px;"></canvas>
-                        </div>
-                    </div>
-                </div>
-            `;
-    });
+      // Obsługa wieloliniowego Wykresu Chart.js (Anomaly % + 6 Metryk)
+      const chartId = `chart-${safeId}`;
+      const ctx = document.getElementById(chartId);
+      const currentTime = new Date().toLocaleTimeString();
 
-    if (Object.keys(data).length > 0) {
-      container.innerHTML = totalSensorsHtml;
-
-      // Inicjalizacja / aktualizacja wykresów dla każdego sensora
-      Object.keys(data).forEach(sensorId => {
-        const chartId = `chart-${sensorId.replace(/\./g, '_')}`;
-        const ctx = document.getElementById(chartId);
-        if (ctx && !charts[chartId]) {
-          const now = new Date();
-          const labels = Array.from({length: 24}, (_, i) => {
-            const d = new Date(now.getTime() - (23 - i) * 3600000);
-            return d.getHours() + ':00';
-          });
-
-          charts[chartId] = new Chart(ctx, {
-            type: 'line',
-            data: {
-              labels: labels,
-              datasets: [{
-                label: 'Prawdopodobieństwo anomalii (%)',
-                data: Array(23).fill(0).concat([data[sensorId].anomalyProbability || 0]),
+      if (ctx && !charts[chartId]) {
+        charts[chartId] = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: [currentTime],
+            datasets: [
+              {
+                label: 'Anomalia (%)',
+                data: [prob],
+                borderColor: '#dc3545',
+                backgroundColor: 'rgba(220, 53, 69, 0.1)',
+                borderWidth: 3,
+                yAxisID: 'yProb',
+                tension: 0.2
+              },
+              {
+                label: 'Metryka 1 (Z-Score)',
+                data: [],
                 borderColor: '#0d6efd',
-                backgroundColor: 'rgba(13, 110, 253, 0.1)',
-                fill: true,
-                tension: 0.3
-              }]
-            },
-            options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              scales: {
-                y: { beginAtZero: true, max: 100 }
+                borderDash: [5, 5],
+                borderWidth: 1.5,
+                yAxisID: 'yZScore',
+                tension: 0.2
+              },
+              {
+                label: 'Metryka 2 (Z-Score)',
+                data: [],
+                borderColor: '#198754',
+                borderDash: [5, 5],
+                borderWidth: 1.5,
+                yAxisID: 'yZScore',
+                tension: 0.2
+              },
+              {
+                label: 'Metryka 3 (Z-Score)',
+                data: [],
+                borderColor: '#ffc107',
+                borderDash: [5, 5],
+                borderWidth: 1.5,
+                yAxisID: 'yZScore',
+                tension: 0.2
+              },
+              {
+                label: 'Metryka 4 (Z-Score)',
+                data: [],
+                borderColor: '#0dcaf0',
+                borderDash: [5, 5],
+                borderWidth: 1.5,
+                yAxisID: 'yZScore',
+                tension: 0.2
+              },
+              {
+                label: 'Metryka 5 (Z-Score)',
+                data: [],
+                borderColor: '#6f42c1',
+                borderDash: [5, 5],
+                borderWidth: 1.5,
+                yAxisID: 'yZScore',
+                tension: 0.2
+              },
+              {
+                label: 'Metryka 6 (Z-Score)',
+                data: [],
+                borderColor: '#fd7e14',
+                borderDash: [5, 5],
+                borderWidth: 1.5,
+                yAxisID: 'yZScore',
+                tension: 0.2
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            scales: {
+              yProb: {
+                type: 'linear',
+                display: true,
+                position: 'left',
+                beginAtZero: true,
+                max: 100,
+                title: { display: true, text: 'Prawdopodobieństwo (%)' }
+              },
+              yZScore: {
+                type: 'linear',
+                display: true,
+                position: 'right',
+                grid: { drawOnChartArea: false },
+                title: { display: true, text: 'Wartości Z-Score' }
               }
             }
-          });
-        }
-      });
-    } else {
-      container.innerHTML = '<div class="alert alert-warning text-center">Brak podłączonych sond. Uruchom dumpcap na maszynach monitorujących.</div>';
-    }
+          }
+        });
+      } else if (charts[chartId]) {
+        const chart = charts[chartId];
+
+        // Dodajemy nową etykietę czasową i utrzymujemy ostatnie 20 punktów
+        chart.data.labels.push(currentTime);
+        if (chart.data.labels.length > 20) chart.data.labels.shift();
+
+        // Linia 0: Prawdopodobieństwo Anomalii
+        chart.data.datasets[0].data.push(prob);
+        if (chart.data.datasets[0].data.length > 20) chart.data.datasets[0].data.shift();
+
+        // Linie 1..6: dynamiczne przypisanie metryk Z-Score ze strumienia
+        const metricKeys = Object.keys(sensorData).filter(k => k !== 'anomalyProbability');
+        metricKeys.slice(0, 6).forEach((key, index) => {
+          const dsIndex = index + 1;
+          if (chart.data.datasets[dsIndex]) {
+            chart.data.datasets[dsIndex].label = key.replace(/_/g, ' ');
+            chart.data.datasets[dsIndex].data.push(sensorData[key]);
+            if (chart.data.datasets[dsIndex].data.length > 20) {
+              chart.data.datasets[dsIndex].data.shift();
+            }
+          }
+        });
+
+        chart.update();
+      }
+    });
   };
 </script>
 </body>

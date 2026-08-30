@@ -47,11 +47,6 @@ public class DashboardController {
     }
 
     @GetMapping
-    public String index(Model model) {
-        return "dashboard";
-    }
-
-    @GetMapping
     public String dashboard(Model model) {
         return "dashboard";
     }

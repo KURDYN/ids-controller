@@ -29,7 +29,7 @@ import java.util.List;
 import java.util.Map;
 
 @Controller
-@RequestMapping("/")
+@RequestMapping("/dashboard")
 public class DashboardController {
 
     private final AssetMetadataService assetMetadataService;
@@ -46,21 +46,6 @@ public class DashboardController {
         this.objectMapper = objectMapper;
     }
 
-    @GetMapping({"/", "/dashboard"})
-    public String dashboard() {
-        return "dashboard";
-    }
-
-    @GetMapping("/sensors")
-    public String sensors() {
-        return "sensors";
-    }
-
-    // Widok Metadanych Assetów
-    @GetMapping("/metadata")
-    public String metadata() {
-        return "metadata";
-    }
 
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @ResponseBody

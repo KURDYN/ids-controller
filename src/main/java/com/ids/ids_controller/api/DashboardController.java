@@ -29,7 +29,7 @@ import java.util.List;
 import java.util.Map;
 
 @Controller
-@RequestMapping("/dashboard")
+@RequestMapping("/")
 public class DashboardController {
 
     private final AssetMetadataService assetMetadataService;
@@ -46,7 +46,7 @@ public class DashboardController {
         this.objectMapper = objectMapper;
     }
 
-    @GetMapping({"/", "/dashboard"})
+    @GetMapping({ "/dashboard"})
     public String dashboard() {
         return "dashboard";
     }

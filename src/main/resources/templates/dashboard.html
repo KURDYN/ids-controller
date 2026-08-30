@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IDS Dashboard - Alerty</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</head>
+<body class="bg-light">
+
+<!-- Górne Menu Nawigacyjne -->
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+    <div class="container">
+        <a class="navbar-brand fw-bold" href="#">IDS Monitor</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto">
+                <li class="nav-item">
+                    <a class="nav-link active fw-bold" href="/dashboard">Alerty</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/sensors">Sensory</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/metadata">Metadane Assetów</a>
+                </li>
+            </ul>
+        </div>
+    </div>
+</nav>
+
+<div class="container pb-5">
+    <!-- Sekcja Incydentów -->
+    <div class="p-4 border rounded bg-white shadow-sm">
+        <h4 class="mb-3 text-secondary d-flex justify-content-between align-content-center">
+            <span>Historia Incydentów i Forensics</span>
+            <span class="badge bg-secondary font-monospace" id="incident-count" style="font-size: 1rem;">0</span>
+        </h4>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead class="table-dark">
+                <tr>
+                    <th>Czas wykrycia</th>
+                    <th>ID Incydentu</th>
+                    <th>Opis / Wyzwalacz</th>
+                    <th>Max Prawdopodobieństwo</th>
+                    <th>Analiza Wireshark</th>
+                </tr>
+                </thead>
+                <tbody id="incidents-table-body">
+                <tr>
+                    <td colspan="5" class="text-center text-muted py-3">Brak zarejestrowanych incydentów. System jest bezpieczny.</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    function refreshIncidents() {
+        fetch('/dashboard/incidents')
+            .then(response => response.json())
+            .then(incidents => {
+                const tbody = document.getElementById('incidents-table-body');
+                document.getElementById('incident-count').innerText = incidents.length;
+
+                if (incidents.length === 0) return;
+
+                let html = '';
+                incidents.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+                incidents.forEach(inc => {
+                    const date = new Date(inc.timestamp).toLocaleTimeString();
+                    html += `
+                        <tr>
+                            <td class="font-monospace">${date}</td>
+                            <td><small class="text-muted">${inc.id.substring(0,8)}...</small></td>
+                            <td><span class="fw-semibold">${inc.description}</span></td>
+                            <td>
+                                <span class="badge bg-danger">${inc.maxProbability.toFixed(1)}%</span>
+                            </td>
+                            <td>
+                                <div class="btn-group" role="group">
+                                    <a href="/dashboard/incidents/${inc.id}/pcap" class="btn btn-sm btn-outline-primary d-inline-flex align-items-center">
+                                        PCAP
+                                    </a>
+                                    <a href="/dashboard/incidents/${inc.id}/json" class="btn btn-sm btn-outline-dark d-inline-flex align-items-center">
+                                        IDMEFv2
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        `;
+                });
+                tbody.innerHTML = html;
+            });
+    }
+
+    setInterval(refreshIncidents, 5000);
+    refreshIncidents();
+</script>
+</body>
+</html>

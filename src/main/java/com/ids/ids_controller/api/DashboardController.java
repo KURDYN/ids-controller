@@ -48,7 +48,7 @@ public class DashboardController {
 
     @GetMapping
     public String index(Model model) {
-        return "index";
+        return "dashboard";
     }
 
     // Nowa struktura: Map<SensorID, Map<NazwaMetryki, Wartosc>>
@@ -196,7 +196,6 @@ public class DashboardController {
                 });
     }
 
-    // --- KONFIGURACJA SIEM TARGETS ---
 
     @GetMapping("/configuration/siem")
     @ResponseBody

@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IDS Dashboard - Metadane Assetów</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</head>
+<body class="bg-light">
+
+<!-- Górne Menu Nawigacyjne -->
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+  <div class="container">
+    <a class="navbar-brand fw-bold" href="#">IDS Monitor</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="navbarNav">
+      <ul class="navbar-nav me-auto">
+        <li class="nav-item">
+          <a class="nav-link" href="/dashboard">Alerty</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="/sensors">Sensory</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link active fw-bold" href="/metadata">Metadane Assetów</a>
+        </li>
+      </ul>
+    </div>
+  </div>
+</nav>
+
+<div class="container pb-5">
+
+  <!-- Ukryty input do importu plików JSON -->
+  <input type="file" id="import-json-input" accept=".json" style="display: none;" onchange="handleFileImport(event)">
+
+  <!-- Sekcja 1: Zarządzanie Metadanymi Sond (Sensors) -->
+  <div class="p-4 border rounded bg-white shadow-sm mb-5">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h4 class="m-0 text-secondary">Zarządzanie Sondami (Sensors) - IDMEFv2</h4>
+      <div class="btn-group" role="group">
+        <button class="btn btn-sm btn-outline-secondary" onclick="exportConfig()">
+          Eksportuj JSON
+        </button>
+        <button class="btn btn-sm btn-outline-primary" onclick="triggerImport()">
+          Importuj JSON
+        </button>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-striped align-middle">
+        <thead class="table-light">
+        <tr>
+          <th>Adres IP Sondy</th>
+          <th>Nazwa Biznesowa</th>
+          <th>Hostname</th>
+          <th>Model</th>
+          <th>Lokalizacja Fizyczna</th>
+          <th>Akcja</th>
+        </tr>
+        </thead>
+        <tbody id="config-table-body">
+        <tr>
+          <td colspan="6" class="text-center text-muted">Brak aktywnych sond do konfiguracji.</td>
+        </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Sekcja 2: Zarządzanie Metadanymi Celów (Targets) -->
+  <div class="p-4 border rounded bg-white shadow-sm mb-5">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h4 class="m-0 text-secondary">Zarządzanie Celami (Targets / Chronione Zasoby)</h4>
+      <div>
+        <button class="btn btn-sm btn-success me-1" onclick="openAddTargetModal()">
+          + Dodaj Target
+        </button>
+        <div class="btn-group" role="group">
+          <button class="btn btn-sm btn-outline-secondary" onclick="exportConfig()">
+            Eksportuj JSON
+          </button>
+          <button class="btn btn-sm btn-outline-primary" onclick="triggerImport()">
+            Importuj JSON
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-striped align-middle">
+        <thead class="table-light">
+        <tr>
+          <th>Adres IP Targetu</th>
+          <th>Nazwa Biznesowa</th>
+          <th>Hostname</th>
+          <th>Lokalizacja Fizyczna</th>
+          <th>Akcja</th>
+        </tr>
+        </thead>
+        <tbody id="target-config-table-body">
+        <tr>
+          <td colspan="5" class="text-center text-muted">Brak zarejestrowanych celów do konfiguracji.</td>
+        </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Sekcja 3: Zarządzanie Celami SIEM (Broadcast) -->
+  <div class="p-4 border rounded bg-white shadow-sm mb-5">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h4 class="m-0 text-secondary">Zarządzanie Celami SIEM (Broadcast Alertów)</h4>
+      <div>
+        <button class="btn btn-sm btn-success me-1" onclick="openAddSiemModal()">
+          + Dodaj Cel SIEM
+        </button>
+        <div class="btn-group" role="group">
+          <button class="btn btn-sm btn-outline-secondary" onclick="exportConfig()">
+            Eksportuj JSON
+          </button>
+          <button class="btn btn-sm btn-outline-primary" onclick="triggerImport()">
+            Importuj JSON
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-striped align-middle">
+        <thead class="table-light">
+        <tr>
+          <th>Nazwa SIEM</th>
+          <th>Host / Adres IP</th>
+          <th>Port</th>
+          <th>Aktywny</th>
+          <th>Akcje</th>
+        </tr>
+        </thead>
+        <tbody id="siem-config-table-body">
+        <tr>
+          <td colspan="5" class="text-center text-muted">Brak zarejestrowanych celów SIEM.</td>
+        </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Modal Edycji Sensora -->
+  <div class="modal fade" id="sensorEditModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header bg-dark text-white">
+          <h5 class="modal-title">Edycja Metadanych Sondy: <span id="modal-sensor-ip" class="font-monospace"></span></h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <form id="sensor-edit-form">
+            <div class="mb-3">
+              <label class="form-label">Nazwa Biznesowa (Name)</label>
+              <input type="text" class="form-control" id="form-sensor-name" placeholder="np. Sonda-Brzegowa-DMZ">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Nazwa Sieciowa (Hostname)</label>
+              <input type="text" class="form-control" id="form-sensor-hostname" placeholder="np. probe-dmz.local">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Model Agenta (Model)</label>
+              <input type="text" class="form-control" id="form-sensor-model" placeholder="np. PcapReceiver-Hook v2.1">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Lokalizacja (Location)</label>
+              <input type="text" class="form-control" id="form-sensor-location" placeholder="np. Serwerownia A, Szafa RACK 4">
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+          <button type="button" class="btn btn-primary" onclick="submitSensorMetadata()">Zapisz</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Edycji Targetu -->
+  <div class="modal fade" id="targetEditModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header bg-dark text-white">
+          <h5 class="modal-title">Edycja Metadanych Targetu: <span id="modal-target-ip" class="font-monospace"></span></h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <form id="target-edit-form">
+            <div class="mb-3">
+              <label class="form-label">Nazwa Biznesowa (Name)</label>
+              <input type="text" class="form-control" id="form-target-name" placeholder="np. Baza-Danych-Prod">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Nazwa Sieciowa (Hostname)</label>
+              <input type="text" class="form-control" id="form-target-hostname" placeholder="np. db-server.local">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Lokalizacja (Location)</label>
+              <input type="text" class="form-control" id="form-target-location" placeholder="np. Chmura Prywatna - Strefa 1">
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+          <button type="button" class="btn btn-primary" onclick="submitTargetMetadata()">Zapisz</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Dodawania Targetu -->
+  <div class="modal fade" id="targetAddModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header bg-dark text-white">
+          <h5 class="modal-title">Dodaj Nowy Target</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <form id="target-add-form">
+            <div class="mb-3">
+              <label class="form-label">Adres IP Targetu <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" id="form-add-target-ip" placeholder="np. 192.168.1.100" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Nazwa Biznesowa (Name)</label>
+              <input type="text" class="form-control" id="form-add-target-name" placeholder="np. Baza-Danych-Prod">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Nazwa Sieciowa (Hostname)</label>
+              <input type="text" class="form-control" id="form-add-target-hostname" placeholder="np. db-server.local">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Lokalizacja (Location)</label>
+              <input type="text" class="form-control" id="form-add-target-location" placeholder="np. Chmura Prywatna - Strefa 1">
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+          <button type="button" class="btn btn-success" onclick="submitAddTarget()">Dodaj Target</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Dodawania/Edycji Celu SIEM -->
+  <div class="modal fade" id="siemModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header bg-dark text-white">
+          <h5 class="modal-title" id="siem-modal-title">Dodaj Cel SIEM</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <form id="siem-form">
+            <input type="hidden" id="form-siem-id">
+            <div class="mb-3">
+              <label class="form-label">Nazwa SIEM <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" id="form-siem-name" placeholder="np. Wazuh SIEM Central" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Host / IP <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" id="form-siem-host" placeholder="np. 10.0.0.50 lub siem.company.local" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Port <span class="text-danger">*</span></label>
+              <input type="number" class="form-control" id="form-siem-port" placeholder="np. 8080" required>
+            </div>
+            <div class="form-check form-switch mb-3">
+              <input class="form-check-input" type="checkbox" id="form-siem-enabled" checked>
+              <label class="form-check-label" for="form-siem-enabled">Aktywny (Broadcast włączony)</label>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+          <button type="button" class="btn btn-success" id="siem-submit-btn" onclick="submitSiemTarget()">Zapisz SIEM</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  let sensorModal;
+  let targetModal;
+  let targetAddModal;
+  let siemModal;
+
+  let siemCache = [];
+
+  document.addEventListener("DOMContentLoaded", () => {
+    sensorModal = new bootstrap.Modal(document.getElementById('sensorEditModal'));
+    targetModal = new bootstrap.Modal(document.getElementById('targetEditModal'));
+    targetAddModal = new bootstrap.Modal(document.getElementById('targetAddModal'));
+    siemModal = new bootstrap.Modal(document.getElementById('siemModal'));
+
+    setInterval(refreshSensorConfig, 5000);
+    setInterval(refreshTargetConfig, 5000);
+    setInterval(refreshSiemConfig, 5000);
+
+    refreshSensorConfig();
+    refreshTargetConfig();
+    refreshSiemConfig();
+  });
+
+  // Funkcje Obsługi Sond
+  function refreshSensorConfig() {
+    fetch('/dashboard/configuration/sensors')
+            .then(response => response.json())
+            .then(sensors => {
+              const tbody = document.getElementById('config-table-body');
+              if (!sensors || sensors.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Brak aktywnych sond online. Skonfiguruj agentów.</td></tr>';
+                return;
+              }
+
+              let html = '';
+              sensors.forEach(s => {
+                const nameDisplay = (s.name === 'null' || !s.name) ? '<span class="text-muted small">Nieustawiona</span>' : s.name;
+                const hostDisplay = (s.hostname === 'null' || !s.hostname) ? '<span class="text-muted small">Nieustawiony</span>' : s.hostname;
+                const modelDisplay = (s.model === 'null' || !s.model) ? '<span class="text-muted small">Nieustawiony</span>' : s.model;
+                const locDisplay = (s.location === 'null' || !s.location) ? '<span class="text-muted small">Nieustawiona</span>' : s.location;
+
+                html += `
+                    <tr>
+                        <td class="font-monospace fw-bold">${s.sensorId}</td>
+                        <td>${nameDisplay}</td>
+                        <td>${hostDisplay}</td>
+                        <td>${modelDisplay}</td>
+                        <td>${locDisplay}</td>
+                        <td>
+                            <button class="btn btn-sm btn-dark" onclick="openSensorEditModal('${s.sensorId}', '${s.name}', '${s.hostname}', '${s.model}', '${s.location}')">
+                                Edytuj
+                            </button>
+                        </td>
+                    </tr>
+                `;
+              });
+              tbody.innerHTML = html;
+            });
+  }
+
+  function openSensorEditModal(id, name, hostname, model, location) {
+    document.getElementById('modal-sensor-ip').innerText = id;
+    document.getElementById('form-sensor-name').value = name === 'null' ? '' : name;
+    document.getElementById('form-sensor-hostname').value = hostname === 'null' ? '' : hostname;
+    document.getElementById('form-sensor-model').value = model === 'null' ? '' : model;
+    document.getElementById('form-sensor-location').value = location === 'null' ? '' : location;
+    sensorModal.show();
+  }
+
+  function submitSensorMetadata() {
+    const id = document.getElementById('modal-sensor-ip').innerText;
+    const payload = {
+      name: document.getElementById('form-sensor-name').value,
+      hostname: document.getElementById('form-sensor-hostname').value,
+      model: document.getElementById('form-sensor-model').value,
+      location: document.getElementById('form-sensor-location').value
+    };
+
+    fetch(`/dashboard/configuration/sensors/${id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(response => {
+      if (response.ok) {
+        sensorModal.hide();
+        refreshSensorConfig();
+      }
+    });
+  }
+
+  // Funkcje Obsługi Targetów
+  function refreshTargetConfig() {
+    fetch('/dashboard/configuration/targets')
+            .then(response => response.json())
+            .then(targets => {
+              const tbody = document.getElementById('target-config-table-body');
+              if (!targets || targets.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Brak zarejestrowanych celów do konfiguracji.</td></tr>';
+                return;
+              }
+
+              let html = '';
+              targets.forEach(t => {
+                const nameDisplay = (t.name === 'null' || !t.name) ? '<span class="text-muted small">Nieustawiona</span>' : t.name;
+                const hostDisplay = (t.hostname === 'null' || !t.hostname) ? '<span class="text-muted small">Nieustawiony</span>' : t.hostname;
+                const locDisplay = (t.location === 'null' || !t.location) ? '<span class="text-muted small">Nieustawiona</span>' : t.location;
+
+                html += `
+                    <tr>
+                        <td class="font-monospace fw-bold">${t.targetIp}</td>
+                        <td>${nameDisplay}</td>
+                        <td>${hostDisplay}</td>
+                        <td>${locDisplay}</td>
+                        <td>
+                            <button class="btn btn-sm btn-dark" onclick="openTargetEditModal('${t.targetIp}', '${t.name}', '${t.hostname}', '${t.location}')">
+                                Edytuj
+                            </button>
+                        </td>
+                    </tr>
+                `;
+              });
+              tbody.innerHTML = html;
+            });
+  }
+
+  function openTargetEditModal(ip, name, hostname, location) {
+    document.getElementById('modal-target-ip').innerText = ip;
+    document.getElementById('form-target-name').value = name === 'null' ? '' : name;
+    document.getElementById('form-target-hostname').value = hostname === 'null' ? '' : hostname;
+    document.getElementById('form-target-location').value = location === 'null' ? '' : location;
+    targetModal.show();
+  }
+
+  function submitTargetMetadata() {
+    const ip = document.getElementById('modal-target-ip').innerText;
+    const payload = {
+      name: document.getElementById('form-target-name').value,
+      hostname: document.getElementById('form-target-hostname').value,
+      location: document.getElementById('form-target-location').value
+    };
+
+    fetch(`/dashboard/configuration/targets/${ip}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(response => {
+      if (response.ok) {
+        targetModal.hide();
+        refreshTargetConfig();
+      }
+    });
+  }
+
+  function openAddTargetModal() {
+    document.getElementById('form-add-target-ip').value = '';
+    document.getElementById('form-add-target-name').value = '';
+    document.getElementById('form-add-target-hostname').value = '';
+    document.getElementById('form-add-target-location').value = '';
+    targetAddModal.show();
+  }
+
+  function submitAddTarget() {
+    const ip = document.getElementById('form-add-target-ip').value.trim();
+    if (!ip) {
+      alert('Wprowadź adres IP targetu.');
+      return;
+    }
+
+    const payload = {
+      name: document.getElementById('form-add-target-name').value,
+      hostname: document.getElementById('form-add-target-hostname').value,
+      location: document.getElementById('form-add-target-location').value
+    };
+
+    fetch(`/dashboard/configuration/targets/${ip}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(response => {
+      if (response.ok) {
+        targetAddModal.hide();
+        refreshTargetConfig();
+      }
+    });
+  }
+
+  // Funkcje Obsługi Celów SIEM
+  function refreshSiemConfig() {
+    fetch('/dashboard/configuration/siem')
+            .then(response => response.json())
+            .then(siems => {
+              siemCache = siems || [];
+              const tbody = document.getElementById('siem-config-table-body');
+              if (!siems || siems.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Brak zarejestrowanych celów SIEM.</td></tr>';
+                return;
+              }
+
+              let html = '';
+              siems.forEach(s => {
+                const statusBadge = s.enabled
+                        ? '<span class="badge bg-success">TAK</span>'
+                        : '<span class="badge bg-secondary">NIE</span>';
+
+                html += `
+                    <tr>
+                        <td class="fw-bold">${s.name}</td>
+                        <td class="font-monospace">${s.host}</td>
+                        <td class="font-monospace">${s.port}</td>
+                        <td>${statusBadge}</td>
+                        <td>
+                            <div class="btn-group" role="group">
+                                <button class="btn btn-sm btn-dark" onclick="openEditSiemModal('${s.id}')">
+                                    Edytuj
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" onclick="deleteSiemTarget('${s.id}')">
+                                    Usuń
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+              });
+              tbody.innerHTML = html;
+            });
+  }
+
+  function openAddSiemModal() {
+    document.getElementById('siem-modal-title').innerText = 'Dodaj Cel SIEM';
+    document.getElementById('siem-submit-btn').innerText = 'Dodaj SIEM';
+    document.getElementById('form-siem-id').value = '';
+    document.getElementById('form-siem-name').value = '';
+    document.getElementById('form-siem-host').value = '';
+    document.getElementById('form-siem-port').value = '';
+    document.getElementById('form-siem-enabled').checked = true;
+    siemModal.show();
+  }
+
+  function openEditSiemModal(id) {
+    const item = siemCache.find(s => s.id === id);
+    if (!item) return;
+
+    document.getElementById('siem-modal-title').innerText = 'Edycja Celu SIEM';
+    document.getElementById('siem-submit-btn').innerText = 'Zapisz Zmiany';
+    document.getElementById('form-siem-id').value = item.id;
+    document.getElementById('form-siem-name').value = item.name;
+    document.getElementById('form-siem-host').value = item.host;
+    document.getElementById('form-siem-port').value = item.port;
+    document.getElementById('form-siem-enabled').checked = item.enabled;
+    siemModal.show();
+  }
+
+  function submitSiemTarget() {
+    const id = document.getElementById('form-siem-id').value;
+    const name = document.getElementById('form-siem-name').value.trim();
+    const host = document.getElementById('form-siem-host').value.trim();
+    const portVal = document.getElementById('form-siem-port').value.trim();
+
+    if (!name || !host || !portVal) {
+      alert('Wypełnij wszystkie wymagane pola (Nazwa, Host, Port).');
+      return;
+    }
+
+    const payload = {
+      id: id || null,
+      name: name,
+      host: host,
+      port: parseInt(portVal, 10),
+      enabled: document.getElementById('form-siem-enabled').checked
+    };
+
+    fetch('/dashboard/configuration/siem', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(response => {
+      if (response.ok) {
+        siemModal.hide();
+        refreshSiemConfig();
+      } else {
+        alert('Błąd podczas zapisywania celu SIEM.');
+      }
+    });
+  }
+
+  function deleteSiemTarget(id) {
+    if (!confirm('Czy na pewno chcesz usunąć ten cel SIEM?')) return;
+
+    fetch(`/dashboard/configuration/siem/${id}`, {
+      method: 'DELETE'
+    }).then(response => {
+      if (response.ok) {
+        refreshSiemConfig();
+      } else {
+        alert('Błąd podczas usuwania celu SIEM.');
+      }
+    });
+  }
+
+  // Obsługa Eksportu i Importu Konfiguracji
+  function exportConfig() {
+    window.location.href = '/dashboard/configuration/export';
+  }
+
+  function triggerImport() {
+    document.getElementById('import-json-input').click();
+  }
+
+  function handleFileImport(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    fetch('/dashboard/configuration/import', {
+      method: 'POST',
+      body: formData
+    })
+            .then(response => {
+              if (response.ok) {
+                alert('Konfiguracja została pomyślnie zaimportowana.');
+                refreshSensorConfig();
+                refreshTargetConfig();
+                refreshSiemConfig();
+              } else {
+                alert('Błąd podczas importu pliku konfiguracji.');
+              }
+            })
+            .catch(err => alert('Błąd połączenia: ' + err))
+            .finally(() => {
+              event.target.value = ''; // Reset wybranego pliku
+            });
+  }
+</script>
+</body>
+</html>

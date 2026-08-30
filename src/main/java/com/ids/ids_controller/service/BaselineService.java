@@ -26,7 +26,7 @@ public class BaselineService {
 
     private final Map<String, BaselineStats> currentStats = new ConcurrentHashMap<>();;
 
-    public void addObservation(String featureName, double value, double anomalyProbability) {
+    public void addObservation(String featureName, double rawValue, double zScoreValue, double anomalyProbability) {
         BaselineStats stats = currentStats.computeIfAbsent(featureName, k -> new BaselineStats());
 
         if (anomalyProbability > 60.0 && stats.getCount() > 30) {
@@ -34,14 +34,15 @@ public class BaselineService {
             return;
         }
 
-        // przesuwanie okna Deque
+        // 1. Profil uczący aktualizuje się surową wartością
+        stats.update(rawValue);
+
+        // 2. Do historii dla wykresu trafia wyliczony Z-Score
         Deque<Double> history = historyMap.computeIfAbsent(featureName, k -> new ConcurrentLinkedDeque<>());
         if (history.size() >= MAX_WINDOW_SIZE) {
-            Double oldest = history.pollFirst();
-            if (oldest != null) stats.remove(oldest);
+            history.pollFirst();
         }
-        history.addLast(value);
-        stats.update(value);
+        history.addLast(zScoreValue);
     }
 
     public void recordSensorState(String sensorId, double anomalyProbability) {

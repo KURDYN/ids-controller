@@ -118,12 +118,12 @@ public class StatisticsAggregator {
             incidentService.endAttack(sensorId);
         }
 
-        baselineService.addObservation(prefix + "SYNS_PER_SEC", s.syns, metrics.lastProbability);
-        baselineService.addObservation(prefix + "ICMPS_PER_SEC", s.icmps, metrics.lastProbability);
-        baselineService.addObservation(prefix + "AVG_PACKET_SIZE", s.avgPacketSize, metrics.lastProbability);
-        baselineService.addObservation(prefix + "TRAFFIC_ASYMMETRY", s.asymmetry, metrics.lastProbability);
-        baselineService.addObservation(prefix + "ACTIVE_FLOWS", s.flows, metrics.lastProbability);
-        baselineService.addObservation(prefix + "GLOBAL_PORT_DIVERSITY", s.portDiversity, metrics.lastProbability);
+        baselineService.addObservation(prefix + "SYNS_PER_SEC", s.syns, metrics.zSyn, metrics.lastProbability);
+        baselineService.addObservation(prefix + "ICMPS_PER_SEC", s.icmps, metrics.zIcmp, metrics.lastProbability);
+        baselineService.addObservation(prefix + "AVG_PACKET_SIZE", s.avgPacketSize, metrics.zAvgSize, metrics.lastProbability);
+        baselineService.addObservation(prefix + "TRAFFIC_ASYMMETRY", s.asymmetry, metrics.zAsym, metrics.lastProbability);
+        baselineService.addObservation(prefix + "ACTIVE_FLOWS", s.flows, metrics.zFlows, metrics.lastProbability);
+        baselineService.addObservation(prefix + "GLOBAL_PORT_DIVERSITY", s.portDiversity, metrics.zPortVar, metrics.lastProbability);
 
         baselineService.recordSensorState(sensorId, metrics.lastProbability);
     }

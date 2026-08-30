@@ -6,7 +6,14 @@
   <title>IDS Dashboard - Sensory</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Chart.js i wtyczki do czasu, zoomu oraz przesuwania wykresu -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+
   <style>
     .metric-card { transition: all 0.3s ease; }
   </style>
@@ -48,24 +55,96 @@
   const charts = {};
   const sensorMetadataCache = {};
 
-  // Pobieranie metadanych z konfiguracji backendu
   async function fetchMetadata() {
     try {
       const res = await fetch('/dashboard/configuration/sensors');
       if (res.ok) {
         const sensors = await res.json();
-        sensors.forEach(s => {
-          sensorMetadataCache[s.id] = s;
-        });
+        sensors.forEach(s => { sensorMetadataCache[s.id] = s; });
       }
     } catch (e) {
       console.error("Błąd podczas pobierania metadanych sensorów:", e);
     }
   }
 
-  // Odświeżamy metadane co 30 sekund
   fetchMetadata();
   setInterval(fetchMetadata, 30000);
+
+  // Inicjalizacja wykresu dla wskazanego sensora i załadowanie 24h historii
+  async function initChart(sensorId, safeId) {
+    const chartId = `chart-${safeId}`;
+    const ctx = document.getElementById(chartId);
+    if (!ctx || charts[chartId]) return;
+
+    charts[chartId] = new Chart(ctx, {
+      type: 'line',
+      data: {
+        datasets: [
+          { label: 'Anomalia (%)', data: [], borderColor: '#dc3545', backgroundColor: 'rgba(220, 53, 69, 0.1)', borderWidth: 2.5, yAxisID: 'yProb', tension: 0.1, pointRadius: 0 },
+          { label: 'SYNS PER SEC', data: [], borderColor: '#0d6efd', borderDash: [4, 4], borderWidth: 1.2, yAxisID: 'yZScore', tension: 0.1, pointRadius: 0 },
+          { label: 'ICMPS PER SEC', data: [], borderColor: '#198754', borderDash: [4, 4], borderWidth: 1.2, yAxisID: 'yZScore', tension: 0.1, pointRadius: 0 },
+          { label: 'AVG PACKET SIZE', data: [], borderColor: '#ffc107', borderDash: [4, 4], borderWidth: 1.2, yAxisID: 'yZScore', tension: 0.1, pointRadius: 0 },
+          { label: 'TRAFFIC ASYMMETRY', data: [], borderColor: '#0dcaf0', borderDash: [4, 4], borderWidth: 1.2, yAxisID: 'yZScore', tension: 0.1, pointRadius: 0 },
+          { label: 'ACTIVE FLOWS', data: [], borderColor: '#6f42c1', borderDash: [4, 4], borderWidth: 1.2, yAxisID: 'yZScore', tension: 0.1, pointRadius: 0 },
+          { label: 'GLOBAL PORT DIVERSITY', data: [], borderColor: '#fd7e14', borderDash: [4, 4], borderWidth: 1.2, yAxisID: 'yZScore', tension: 0.1, pointRadius: 0 }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        scales: {
+          x: {
+            type: 'time',
+            time: { unit: 'minute', displayFormats: { minute: 'HH:mm' } },
+            title: { display: true, text: 'Czas' }
+          },
+          yProb: {
+            type: 'linear', display: true, position: 'left', beginAtZero: true, max: 100, title: { display: true, text: 'Prawdopodobieństwo (%)' }
+          },
+          yZScore: {
+            type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Wartości Z-Score' }
+          }
+        },
+        plugins: {
+          zoom: {
+            pan: { enabled: true, mode: 'x' },
+            zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }
+          }
+        }
+      }
+    });
+
+    // Wczytanie historii 24h z REST API
+    try {
+      const res = await fetch(`/dashboard/history/${encodeURIComponent(sensorId)}`);
+      if (res.ok) {
+        const history = await res.json();
+        const chart = charts[chartId];
+
+        history.forEach(item => {
+          const t = item.timestamp;
+          chart.data.datasets[0].data.push({ x: t, y: item.anomalyProbability });
+          chart.data.datasets[1].data.push({ x: t, y: item.zSyn });
+          chart.data.datasets[2].data.push({ x: t, y: item.zIcmp });
+          chart.data.datasets[3].data.push({ x: t, y: item.zAvgSize });
+          chart.data.datasets[4].data.push({ x: t, y: item.zAsym });
+          chart.data.datasets[5].data.push({ x: t, y: item.zFlows });
+          chart.data.datasets[6].data.push({ x: t, y: item.zPortVar });
+        });
+
+        chart.update('none');
+      }
+    } catch (e) {
+      console.error("Błąd podczas pobierania historii wykresu:", e);
+    }
+  }
+
+  function resetZoom(chartId) {
+    if (charts[chartId]) {
+      charts[chartId].resetZoom();
+    }
+  }
 
   const eventSource = new EventSource("/dashboard/stream");
 
@@ -73,20 +152,10 @@
     const data = JSON.parse(event.data);
     const container = document.getElementById('sensors-container');
     const loader = document.getElementById('initial-loader');
-
     if (loader) loader.remove();
 
     const sensorIds = Object.keys(data);
-
-    if (sensorIds.length === 0) {
-      if (!document.getElementById('no-sensors-alert')) {
-        container.innerHTML = '<div id="no-sensors-alert" class="alert alert-warning text-center">Brak podłączonych sond. Uruchom dumpcap na maszynach monitorujących.</div>';
-      }
-      return;
-    }
-
-    const noSensorsAlert = document.getElementById('no-sensors-alert');
-    if (noSensorsAlert) noSensorsAlert.remove();
+    if (sensorIds.length === 0) return;
 
     sensorIds.forEach(sensorId => {
       const sensorData = data[sensorId];
@@ -107,7 +176,6 @@
         cardBorder = 'border-danger';
       }
 
-      // Jeśli karta dla sensora nie istnieje, twórzmy jej strukturę jednorazowo
       if (!document.getElementById(cardId)) {
         const cardHtml = `
           <div class="card mb-4 shadow-sm ${cardBorder}" id="${cardId}">
@@ -134,15 +202,20 @@
                   </div>
                   <div class="row mb-4" id="metrics-grid-${safeId}"></div>
                   <div class="p-3 bg-light rounded border">
-                      <h6 class="text-muted mb-3">Interaktywny wykres metryk i anomalii (Na żywo)</h6>
-                      <canvas id="chart-${safeId}" style="max-height: 250px;"></canvas>
+                      <div class="d-flex justify-content-between align-items-center mb-3">
+                          <h6 class="text-muted m-0">Interaktywny wykres aktywności (24h)</h6>
+                          <button class="btn btn-sm btn-outline-secondary" onclick="resetZoom('chart-${safeId}')">Przywróć widok</button>
+                      </div>
+                      <div style="position: relative; height: 260px;">
+                        <canvas id="chart-${safeId}"></canvas>
+                      </div>
                   </div>
               </div>
           </div>
         `;
         container.insertAdjacentHTML('beforeend', cardHtml);
+        initChart(sensorId, safeId);
       } else {
-        // Aktualizacja nagłówków i pasków bez przebudowy DOM
         const badge = document.getElementById(`badge-${safeId}`);
         badge.className = `badge ${badgeClass}`;
         badge.innerText = statusText;
@@ -177,9 +250,7 @@
                       <div class="text-uppercase text-muted mb-1" style="font-size: 0.65rem; letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${key}">
                           ${key.replace(/_/g, ' ')}
                       </div>
-                      <div class="h5 mb-0 fw-bold font-monospace">
-                          ${val.toFixed(3)}
-                      </div>
+                      <div class="h5 mb-0 fw-bold font-monospace">${val.toFixed(3)}</div>
                       <small class="text-muted" style="font-size: 0.7rem;">Z-Score</small>
                   </div>
               </div>
@@ -188,130 +259,26 @@
       });
       metricsGrid.innerHTML = gridHtml;
 
-      // Obsługa wieloliniowego Wykresu Chart.js (Anomaly % + 6 Metryk)
+      // Aktualizacja danych w czasie rzeczywistym na istniejącym wykresie
       const chartId = `chart-${safeId}`;
-      const ctx = document.getElementById(chartId);
-      const currentTime = new Date().toLocaleTimeString();
+      const chart = charts[chartId];
+      if (chart) {
+        const now = Date.now();
 
-      if (ctx && !charts[chartId]) {
-        charts[chartId] = new Chart(ctx, {
-          type: 'line',
-          data: {
-            labels: [currentTime],
-            datasets: [
-              {
-                label: 'Anomalia (%)',
-                data: [prob],
-                borderColor: '#dc3545',
-                backgroundColor: 'rgba(220, 53, 69, 0.1)',
-                borderWidth: 3,
-                yAxisID: 'yProb',
-                tension: 0.2
-              },
-              {
-                label: 'Metryka 1 (Z-Score)',
-                data: [],
-                borderColor: '#0d6efd',
-                borderDash: [5, 5],
-                borderWidth: 1.5,
-                yAxisID: 'yZScore',
-                tension: 0.2
-              },
-              {
-                label: 'Metryka 2 (Z-Score)',
-                data: [],
-                borderColor: '#198754',
-                borderDash: [5, 5],
-                borderWidth: 1.5,
-                yAxisID: 'yZScore',
-                tension: 0.2
-              },
-              {
-                label: 'Metryka 3 (Z-Score)',
-                data: [],
-                borderColor: '#ffc107',
-                borderDash: [5, 5],
-                borderWidth: 1.5,
-                yAxisID: 'yZScore',
-                tension: 0.2
-              },
-              {
-                label: 'Metryka 4 (Z-Score)',
-                data: [],
-                borderColor: '#0dcaf0',
-                borderDash: [5, 5],
-                borderWidth: 1.5,
-                yAxisID: 'yZScore',
-                tension: 0.2
-              },
-              {
-                label: 'Metryka 5 (Z-Score)',
-                data: [],
-                borderColor: '#6f42c1',
-                borderDash: [5, 5],
-                borderWidth: 1.5,
-                yAxisID: 'yZScore',
-                tension: 0.2
-              },
-              {
-                label: 'Metryka 6 (Z-Score)',
-                data: [],
-                borderColor: '#fd7e14',
-                borderDash: [5, 5],
-                borderWidth: 1.5,
-                yAxisID: 'yZScore',
-                tension: 0.2
-              }
-            ]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            animation: false,
-            scales: {
-              yProb: {
-                type: 'linear',
-                display: true,
-                position: 'left',
-                beginAtZero: true,
-                max: 100,
-                title: { display: true, text: 'Prawdopodobieństwo (%)' }
-              },
-              yZScore: {
-                type: 'linear',
-                display: true,
-                position: 'right',
-                grid: { drawOnChartArea: false },
-                title: { display: true, text: 'Wartości Z-Score' }
-              }
-            }
-          }
-        });
-      } else if (charts[chartId]) {
-        const chart = charts[chartId];
+        chart.data.datasets[0].data.push({ x: now, y: prob });
+        chart.data.datasets[1].data.push({ x: now, y: sensorData['SYNS_PER_SEC'] || 0 });
+        chart.data.datasets[2].data.push({ x: now, y: sensorData['ICMPS_PER_SEC'] || 0 });
+        chart.data.datasets[3].data.push({ x: now, y: sensorData['AVG_PACKET_SIZE'] || 0 });
+        chart.data.datasets[4].data.push({ x: now, y: sensorData['TRAFFIC_ASYMMETRY'] || 0 });
+        chart.data.datasets[5].data.push({ x: now, y: sensorData['ACTIVE_FLOWS'] || 0 });
+        chart.data.datasets[6].data.push({ x: now, y: sensorData['GLOBAL_PORT_DIVERSITY'] || 0 });
 
-        // Dodajemy nową etykietę czasową i utrzymujemy ostatnie 20 punktów
-        chart.data.labels.push(currentTime);
-        if (chart.data.labels.length > 20) chart.data.labels.shift();
-
-        // Linia 0: Prawdopodobieństwo Anomalii
-        chart.data.datasets[0].data.push(prob);
-        if (chart.data.datasets[0].data.length > 20) chart.data.datasets[0].data.shift();
-
-        // Linie 1..6: dynamiczne przypisanie metryk Z-Score ze strumienia
-        const metricKeys = Object.keys(sensorData).filter(k => k !== 'anomalyProbability');
-        metricKeys.slice(0, 6).forEach((key, index) => {
-          const dsIndex = index + 1;
-          if (chart.data.datasets[dsIndex]) {
-            chart.data.datasets[dsIndex].label = key.replace(/_/g, ' ');
-            chart.data.datasets[dsIndex].data.push(sensorData[key]);
-            if (chart.data.datasets[dsIndex].data.length > 20) {
-              chart.data.datasets[dsIndex].data.shift();
-            }
-          }
+        // Utrzymywanie bufora do 86 400 wpisów (24 godziny)
+        chart.data.datasets.forEach(ds => {
+          if (ds.data.length > 86400) ds.data.shift();
         });
 
-        chart.update();
+        chart.update('none');
       }
     });
   };

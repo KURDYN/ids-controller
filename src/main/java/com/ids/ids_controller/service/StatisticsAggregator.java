@@ -124,6 +124,8 @@ public class StatisticsAggregator {
         baselineService.addObservation(prefix + "TRAFFIC_ASYMMETRY", s.asymmetry, metrics.lastProbability);
         baselineService.addObservation(prefix + "ACTIVE_FLOWS", s.flows, metrics.lastProbability);
         baselineService.addObservation(prefix + "GLOBAL_PORT_DIVERSITY", s.portDiversity, metrics.lastProbability);
+
+        baselineService.recordSensorState(sensorId, metrics.lastProbability);
     }
 
     // Metoda przyjmuje teraz sensorId, aby kontroler/UI mógł pobrać metryki dla wybranej zakładki

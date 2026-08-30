@@ -214,4 +214,10 @@ public class DashboardController {
                 .subscribeOn(Schedulers.boundedElastic())
                 .thenReturn(ResponseEntity.ok("Usunięto cel SIEM"));
     }
+
+    @GetMapping("/history/{sensorId}")
+    @ResponseBody
+    public List<Map<String, Object>> getSensorHistory(@PathVariable String sensorId) {
+        return baselineService.getSensorHistory(sensorId);
+    }
 }

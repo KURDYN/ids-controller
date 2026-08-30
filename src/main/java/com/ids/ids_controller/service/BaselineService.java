@@ -8,6 +8,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.io.File;
 import java.io.IOException;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -18,6 +19,9 @@ public class BaselineService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private final Map<String, Deque<Double>> historyMap = new ConcurrentHashMap<>();
+    private final Map<String, Deque<Long>> timestampsMap = new ConcurrentHashMap<>();
+    private final Map<String, Deque<Double>> anomalyHistoryMap = new ConcurrentHashMap<>();
+
     private final int MAX_WINDOW_SIZE = 86400; // 24h
 
     private final Map<String, BaselineStats> currentStats = new ConcurrentHashMap<>();;
@@ -38,6 +42,65 @@ public class BaselineService {
         }
         history.addLast(value);
         stats.update(value);
+    }
+
+    public void recordSensorState(String sensorId, double anomalyProbability) {
+        long now = Instant.now().toEpochMilli();
+
+        Deque<Long> timestamps = timestampsMap.computeIfAbsent(sensorId, k -> new ConcurrentLinkedDeque<>());
+        Deque<Double> anomalies = anomalyHistoryMap.computeIfAbsent(sensorId, k -> new ConcurrentLinkedDeque<>());
+
+        if (timestamps.size() >= MAX_WINDOW_SIZE) {
+            timestamps.pollFirst();
+            anomalies.pollFirst();
+        }
+
+        timestamps.addLast(now);
+        anomalies.addLast(anomalyProbability);
+    }
+
+    // Pobieranie skompletowanej historii z bufora dla wskazanego sensora
+    public List<Map<String, Object>> getSensorHistory(String sensorId) {
+        Deque<Long> timestamps = timestampsMap.get(sensorId);
+        if (timestamps == null || timestamps.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        String prefix = sensorId + ":";
+        Deque<Double> anomalies = anomalyHistoryMap.get(sensorId);
+        Deque<Double> syns = historyMap.get(prefix + "SYNS_PER_SEC");
+        Deque<Double> icmps = historyMap.get(prefix + "ICMPS_PER_SEC");
+        Deque<Double> avgSize = historyMap.get(prefix + "AVG_PACKET_SIZE");
+        Deque<Double> asym = historyMap.get(prefix + "TRAFFIC_ASYMMETRY");
+        Deque<Double> flows = historyMap.get(prefix + "ACTIVE_FLOWS");
+        Deque<Double> portVar = historyMap.get(prefix + "GLOBAL_PORT_DIVERSITY");
+
+        List<Map<String, Object>> result = new ArrayList<>();
+
+        Iterator<Long> timeIt = timestamps.iterator();
+        Iterator<Double> anomIt = anomalies != null ? anomalies.iterator() : null;
+        Iterator<Double> synsIt = syns != null ? syns.iterator() : null;
+        Iterator<Double> icmpsIt = icmps != null ? icmps.iterator() : null;
+        Iterator<Double> avgSizeIt = avgSize != null ? avgSize.iterator() : null;
+        Iterator<Double> asymIt = asym != null ? asym.iterator() : null;
+        Iterator<Double> flowsIt = flows != null ? flows.iterator() : null;
+        Iterator<Double> portVarIt = portVar != null ? portVar.iterator() : null;
+
+        while (timeIt.hasNext()) {
+            Map<String, Object> point = new HashMap<>();
+            point.put("timestamp", timeIt.next());
+            point.put("anomalyProbability", (anomIt != null && anomIt.hasNext()) ? anomIt.next() : 0.0);
+            point.put("zSyn", (synsIt != null && synsIt.hasNext()) ? synsIt.next() : 0.0);
+            point.put("zIcmp", (icmpsIt != null && icmpsIt.hasNext()) ? icmpsIt.next() : 0.0);
+            point.put("zAvgSize", (avgSizeIt != null && avgSizeIt.hasNext()) ? avgSizeIt.next() : 0.0);
+            point.put("zAsym", (asymIt != null && asymIt.hasNext()) ? asymIt.next() : 0.0);
+            point.put("zFlows", (flowsIt != null && flowsIt.hasNext()) ? flowsIt.next() : 0.0);
+            point.put("zPortVar", (portVarIt != null && portVarIt.hasNext()) ? portVarIt.next() : 0.0);
+
+            result.add(point);
+        }
+
+        return result;
     }
 
     public double calculateZScore(String featureName, double currentValue) {

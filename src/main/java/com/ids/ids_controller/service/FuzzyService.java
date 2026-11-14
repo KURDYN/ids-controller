@@ -9,7 +9,7 @@ public class FuzzyService {
     private final FIS fis;
 
     public FuzzyService() {
-        String fileName = "anomaly_finder.fcl";
+        String fileName = "fuzzyIDS.fcl";
         this.fis = FIS.load(getClass().getClassLoader().getResourceAsStream(fileName), true);
 
         if (fis == null) {
@@ -19,15 +19,21 @@ public class FuzzyService {
 
     public double analyze(double zSyn, double zIcmp, double zAvgSize,
                           double zAsym, double zFlows, double zPorts) {
-        fis.setVariable("z_syns", zSyn);
-        fis.setVariable("z_icmps", zIcmp);
-        fis.setVariable("z_avg_size", zAvgSize);
-        fis.setVariable("z_asymmetry", zAsym);
-        fis.setVariable("z_flows", zFlows);
-        fis.setVariable("z_ports", zPorts);
+
+        double msi = Double.max(zSyn, zIcmp);
+        if (msi < 0) msi = 0;
+        fis.setVariable("MSI", msi);
+        if (zPorts < 0) zPorts = 0;
+        fis.setVariable("PVAR", zPorts);
+        zAvgSize = Math.abs(zAvgSize);
+        fis.setVariable("SIZE", zAvgSize);
+        zAsym = Math.abs(zAsym);
+        fis.setVariable("ASSM", zAsym);
+        if (zFlows < 0) zFlows = 0;
+        fis.setVariable("FLOWS", zFlows);
 
         fis.evaluate();
 
-        return fis.getVariable("anomaly_probability").getValue();
+        return fis.getVariable("FIDS_SCORE").getValue();
     }
 }

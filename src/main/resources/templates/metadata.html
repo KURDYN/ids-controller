@@ -6,6 +6,8 @@
   <title>IDS Dashboard - Metadane Assetów</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 </head>
 <body class="bg-light">
 
@@ -25,7 +27,7 @@
           <a class="nav-link" href="/sensors">Sensory</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link active fw-bold" href="/metadata">Metadane Assetów</a>
+          <a class="nav-link active fw-bold" href="/metadata">Ustawienia</a>
         </li>
       </ul>
     </div>
@@ -33,6 +35,81 @@
 </nav>
 
 <div class="container pb-5">
+
+  <!-- Sekcja Attack Threshold -->
+  <div class="p-4 border rounded bg-white shadow-sm mb-4">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <div>
+        <h4 class="m-0 text-secondary">
+          <i class="bi bi-shield-exclamation"></i>
+          Próg wykrycia ataku
+        </h4>
+        <small class="text-muted">
+          Konfiguracja globalnego progu detekcji ataków
+        </small>
+      </div>
+      <span class="badge bg-primary fs-6" id="threshold-current-badge">
+        Ładowanie...
+      </span>
+    </div>
+
+    <div class="row align-items-center">
+      <div class="col-md-9">
+        <label for="attack-threshold-range" class="form-label fw-bold">
+          Próg detekcji (0–100)
+        </label>
+
+        <input
+                type="range"
+                class="form-range"
+                id="attack-threshold-range"
+                min="0"
+                max="100"
+                step="0.1"
+                value="50"
+                oninput="syncThresholdInput(this.value)"
+        >
+
+        <div class="d-flex justify-content-between text-muted small">
+          <span>0 – Maksymalna czułość</span>
+          <span>100 – Minimalna czułość</span>
+        </div>
+      </div>
+
+      <div class="col-md-3">
+        <label for="attack-threshold-input" class="form-label fw-bold">
+          Wartość (%)
+        </label>
+
+        <input
+                type="number"
+                class="form-control text-center fw-bold"
+                id="attack-threshold-input"
+                min="0"
+                max="100"
+                step="0.1"
+                value="50"
+                oninput="syncThresholdRange(this.value)"
+        >
+      </div>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
+      <small id="threshold-status" class="text-muted">
+        Pobieranie aktualnej konfiguracji...
+      </small>
+
+      <button
+              type="button"
+              class="btn btn-primary"
+              id="threshold-save-btn"
+              onclick="saveAttackThreshold()"
+      >
+        Zapisz próg
+      </button>
+    </div>
+  </div>
+
 
   <!-- Ukryty input do importu plików JSON -->
   <input type="file" id="import-json-input" accept=".json" style="display: none;" onchange="handleFileImport(event)">
@@ -303,6 +380,8 @@
     targetModal = new bootstrap.Modal(document.getElementById('targetEditModal'));
     targetAddModal = new bootstrap.Modal(document.getElementById('targetAddModal'));
     siemModal = new bootstrap.Modal(document.getElementById('siemModal'));
+
+    loadAttackThreshold();
 
     setInterval(refreshSensorConfig, 5000);
     setInterval(refreshTargetConfig, 5000);
@@ -624,6 +703,141 @@
               event.target.value = ''; // Reset wybranego pliku
             });
   }
+
+
+  // ==========================================
+  // ATTACK THRESHOLD - OBSŁUGA PROGU DETEKCJI
+  // ==========================================
+
+  // Pobranie aktualnego progu z backendu
+  function loadAttackThreshold() {
+    const status = document.getElementById('threshold-status');
+
+    fetch('/dashboard/threshold')
+            .then(response => {
+              if (!response.ok) {
+                throw new Error('Nie udało się pobrać progu detekcji.');
+              }
+              return response.json();
+            })
+            .then(data => {
+              if (typeof data.threshold !== 'number' ||
+                      !Number.isFinite(data.threshold)) {
+                throw new Error('Backend zwrócił nieprawidłowy próg.');
+              }
+
+              const value = data.threshold;
+
+              document.getElementById('attack-threshold-range').value = value;
+              document.getElementById('attack-threshold-input').value = value;
+
+              document.getElementById('threshold-current-badge').innerText =
+                      'Aktualny próg: ' + value + '%';
+
+              status.innerText = 'Aktualna konfiguracja została pobrana.';
+              status.className = 'text-success small';
+            })
+            .catch(error => {
+              console.error('Attack Threshold:', error);
+              status.innerText = 'Błąd pobierania progu detekcji.';
+              status.className = 'text-danger small';
+            });
+  }
+
+
+  // Synchronizacja suwaka z polem numerycznym
+  function syncThresholdInput(value) {
+    document.getElementById('attack-threshold-input').value = value;
+  }
+
+
+  // Synchronizacja pola numerycznego z suwakiem
+  function syncThresholdRange(value) {
+    const range = document.getElementById('attack-threshold-range');
+
+    if (value === '') {
+      return;
+    }
+
+    const numericValue = Number(value);
+
+    if (Number.isFinite(numericValue) &&
+            numericValue >= 0 &&
+            numericValue <= 100) {
+      range.value = numericValue;
+    }
+  }
+
+
+  // Zapis nowego progu do backendu
+  function saveAttackThreshold() {
+    const input = document.getElementById('attack-threshold-input');
+    const button = document.getElementById('threshold-save-btn');
+    const status = document.getElementById('threshold-status');
+    const badge = document.getElementById('threshold-current-badge');
+
+    const newThreshold = Number(input.value);
+
+    // Walidacja wartości
+    if (input.value.trim() === '' ||
+            !Number.isFinite(newThreshold) ||
+            newThreshold < 0 ||
+            newThreshold > 100) {
+
+      status.innerText = 'Nieprawidłowy próg! Dozwolony zakres: 0–100.';
+      status.className = 'text-danger small';
+      input.classList.add('is-invalid');
+      return;
+    }
+
+    input.classList.remove('is-invalid');
+
+    button.disabled = true;
+    button.innerText = 'Zapisywanie...';
+
+    status.innerText = 'Zapisywanie nowego progu...';
+    status.className = 'text-muted small';
+
+    fetch('/dashboard/threshold', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        threshold: newThreshold
+      })
+    })
+            .then(response => {
+              if (!response.ok) {
+                return response.text().then(message => {
+                  throw new Error(message || 'Błąd zapisu progu.');
+                });
+              }
+
+              return response.text();
+            })
+            .then(message => {
+              // Aktualizacja wartości w interfejsie
+              document.getElementById('attack-threshold-range').value = newThreshold;
+              input.value = newThreshold;
+
+              badge.innerText = 'Aktualny próg: ' + newThreshold + '%';
+
+              status.innerText = message || 'Próg został zaktualizowany pomyślnie.';
+              status.className = 'text-success small';
+            })
+            .catch(error => {
+              console.error('Attack Threshold:', error);
+
+              status.innerText = 'Błąd zapisu: ' + error.message;
+              status.className = 'text-danger small';
+            })
+            .finally(() => {
+              button.disabled = false;
+              button.innerText = 'Zapisz próg';
+            });
+  }
+
 </script>
 </body>
 </html>

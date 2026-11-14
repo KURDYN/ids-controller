@@ -37,6 +37,17 @@ public class StatisticsAggregator {
         double zPortVar;
     }
 
+    private volatile double attackThreshold = 60.0;
+
+    public double getAttackThreshold() {
+        return attackThreshold;
+    }
+
+    public void setAttackThreshold(double attackThreshold) {
+        this.attackThreshold = attackThreshold;
+        log.info("Zmieniono próg detekcji ataku na: {}%", attackThreshold);
+    }
+
     public StatisticsAggregator(FeatureExtractor featureExtractor, BaselineService baselineService, FuzzyService fuzzyService, IncidentService incidentService) {
         this.featureExtractor = featureExtractor;
         this.baselineService = baselineService;
@@ -96,7 +107,7 @@ public class StatisticsAggregator {
         metrics.zFlows = baselineService.calculateZScore(prefix + "ACTIVE_FLOWS", s.flows);
         metrics.zPortVar = baselineService.calculateZScore(prefix + "GLOBAL_PORT_DIVERSITY", s.portDiversity);
 
-        log.info("--- NETWORK SNAPSHOT (REACTIVE) - SENSOR: [{}] ---", sensorId);
+        log.info("--- NETWORK SNAPSHOT - SENSOR: [{}] ---", sensorId);
         log.info("Liczników SYN:   {} pkt/s,     Z: {}", s.syns(), metrics.zSyn);
         log.info("Liczników ICMP:  {} pkt/s,     Z: {}", s.icmps(), metrics.zIcmp);
         log.info("Śr. rozm. pkt:   {} bytes,     Z: {}", String.format("%.2f", s.avgPacketSize()), metrics.zAvgSize);
@@ -110,7 +121,7 @@ public class StatisticsAggregator {
         log.info("--- ANALIZA ZAGROŻEŃ - SENSOR: [{}] ---", sensorId);
         log.info("Prawdopodobieństwo anomalii: {}%", String.format("%.2f", metrics.lastProbability));
 
-        if (metrics.lastProbability > 60) {
+        if (metrics.lastProbability > attackThreshold) {
             log.error("!!! WYKRYTO POWAŻNĄ ANOMALIĘ W SEGMENCIE: [{}] !!!", sensorId);
             incidentService.handleAttackDetection(sensorId, metrics.lastProbability, "ATAK");
         }

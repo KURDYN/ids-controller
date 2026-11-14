@@ -46,7 +46,6 @@ public class DashboardController {
         this.objectMapper = objectMapper;
     }
 
-
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @ResponseBody
     public Flux<Map<String, Map<String, Double>>> streamMetrics() {
@@ -85,7 +84,7 @@ public class DashboardController {
     public Mono<ResponseEntity<String>> downloadIdmefJson(@PathVariable String id) {
         return Mono.justOrEmpty(incidentService.getIncident(id))
                 .map(incident -> ResponseEntity.ok()
-                        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"idmef_" + id.substring(0,8) + ".json\"")
+                        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"idmef_" + id.substring(0, Math.min(id.length(), 8)) + ".json\"")
                         .body(incident.idmefJson()))
                 .defaultIfEmpty(ResponseEntity.notFound().build())
                 .subscribeOn(Schedulers.boundedElastic());
@@ -219,5 +218,30 @@ public class DashboardController {
     @ResponseBody
     public List<Map<String, Object>> getSensorHistory(@PathVariable String sensorId) {
         return baselineService.getSensorHistory(sensorId);
+    }
+
+    // Pobieranie aktualnego progu detekcji
+    @GetMapping("/threshold")
+    @ResponseBody
+    public ResponseEntity<Map<String, Double>> getThreshold() {
+        Map<String, Double> response = new HashMap<>();
+        response.put("threshold", aggregator.getAttackThreshold());
+        return ResponseEntity.ok(response);
+    }
+
+    // Zmiana progu detekcji z frontendu
+    @PostMapping("/threshold")
+    @ResponseBody
+    public ResponseEntity<String> updateThreshold(@RequestBody Map<String, Double> payload) {
+        Double newThreshold = payload.get("threshold");
+        if (newThreshold == null ||
+                !Double.isFinite(newThreshold) ||
+                newThreshold < 0 ||
+                newThreshold > 100) {
+            return ResponseEntity.badRequest()
+                    .body("Nieprawidłowa wartość progu (musi być w zakresie 0-100)");
+        }
+        aggregator.setAttackThreshold(newThreshold);
+        return ResponseEntity.ok("Próg został zaktualizowany pomyślnie.");
     }
 }

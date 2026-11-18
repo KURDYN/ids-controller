@@ -17,18 +17,16 @@ public class FuzzyService {
         }
     }
 
-    public double analyze(double zSyn, double zIcmp, double zAvgSize,
-                          double zAsym, double zFlows, double zPorts) {
-
-        double msi = Double.max(zSyn, zIcmp);
+    public double analyze(double zSyn, double zIcmp, double zAvgSize, double zTrafficVolume, double zFlows, double zPorts) {
+        double msi = Math.max(zSyn, zIcmp);
         if (msi < 0) msi = 0;
         fis.setVariable("MSI", msi);
         if (zPorts < 0) zPorts = 0;
         fis.setVariable("PVAR", zPorts);
         zAvgSize = Math.abs(zAvgSize);
         fis.setVariable("SIZE", zAvgSize);
-        zAsym = Math.abs(zAsym);
-        fis.setVariable("ASSM", zAsym);
+        zTrafficVolume = Math.abs(zTrafficVolume);
+        fis.setVariable("VOL", zTrafficVolume);
         if (zFlows < 0) zFlows = 0;
         fis.setVariable("FLOWS", zFlows);
 

@@ -32,7 +32,7 @@ public class StatisticsAggregator {
         double zSyn;
         double zIcmp;
         double zAvgSize;
-        double zAsym;
+        double zTrafficVolume;
         double zFlows;
         double zPortVar;
     }
@@ -76,22 +76,18 @@ public class StatisticsAggregator {
 
     // Pobieranie danych z ekstraktora na podstawie konkretnego sensorId
     private NetworkSnapshot captureSnapshot(String sensorId) {
-        int syns = featureExtractor.getAndResetSynCount(sensorId);
-        int icmps = featureExtractor.getAndResetIcmpCount(sensorId);
-        double avgSize = featureExtractor.getAvgPacketSize(sensorId);
-        double asymmetry = featureExtractor.getTrafficAsymmetry(sensorId);
-        int flows = featureExtractor.getActiveFlowsCount(sensorId);
 
-        Map<String, Integer> portMap = featureExtractor.getAndResetPortVariety(sensorId);
-        int globalPortDiversity = portMap.values().stream().mapToInt(Integer::intValue).sum();
+        FeatureExtractor.FeatureWindow window =
+                featureExtractor.drainWindow(sensorId);
 
-        NetworkSnapshot snapshot = new NetworkSnapshot(
-                syns, icmps, avgSize, asymmetry, flows, globalPortDiversity
+        return new NetworkSnapshot(
+                window.synCount(),
+                window.icmpCount(),
+                window.averageFrameSizeBytes(),
+                window.trafficVolumeBytesPerSecond(),
+                window.uniqueFlowCount(),
+                window.portDiversity()
         );
-
-        featureExtractor.resetAll(sensorId);
-
-        return snapshot;
     }
 
     private void logSnapshot(NetworkSnapshot s, String sensorId) {
@@ -103,7 +99,7 @@ public class StatisticsAggregator {
         metrics.zSyn = baselineService.calculateZScore(prefix + "SYNS_PER_SEC", s.syns);
         metrics.zIcmp = baselineService.calculateZScore(prefix + "ICMPS_PER_SEC", s.icmps);
         metrics.zAvgSize = baselineService.calculateZScore(prefix + "AVG_PACKET_SIZE", s.avgPacketSize);
-        metrics.zAsym = baselineService.calculateZScore(prefix + "TRAFFIC_ASYMMETRY", s.asymmetry);
+        metrics.zTrafficVolume = baselineService.calculateZScore(prefix + "TRAFFIC_VOLUME_BYTES_PER_SEC", s.trafficVolumeBytesPerSecond);
         metrics.zFlows = baselineService.calculateZScore(prefix + "ACTIVE_FLOWS", s.flows);
         metrics.zPortVar = baselineService.calculateZScore(prefix + "GLOBAL_PORT_DIVERSITY", s.portDiversity);
 
@@ -111,31 +107,32 @@ public class StatisticsAggregator {
         log.info("Liczników SYN:   {} pkt/s,     Z: {}", s.syns(), metrics.zSyn);
         log.info("Liczników ICMP:  {} pkt/s,     Z: {}", s.icmps(), metrics.zIcmp);
         log.info("Śr. rozm. pkt:   {} bytes,     Z: {}", String.format("%.2f", s.avgPacketSize()), metrics.zAvgSize);
-        log.info("Asymetria (I/O): {},           Z: {}", String.format("%.2f", s.asymmetry()), metrics.zAsym);
+        log.info("Wolumen ruchu:   {} B/s,       Z: {}", String.format("%.2f", s.trafficVolumeBytesPerSecond), metrics.zTrafficVolume);
         log.info("Aktywne Flowy:   {},           Z: {}", s.flows(), metrics.zFlows);
         log.info("Ilość unikalnych portów:   {}, Z: {}", s.portDiversity, metrics.zPortVar);
         log.info("------------------------------------");
 
-        metrics.lastProbability = fuzzyService.analyze(metrics.zSyn, metrics.zIcmp, metrics.zAvgSize, metrics.zAsym, metrics.zFlows, metrics.zPortVar);
+        //metrics.lastProbability = fuzzyService.analyze(metrics.zSyn, metrics.zIcmp, metrics.zAvgSize, metrics.zAsym, metrics.zFlows, metrics.zPortVar);
 
         log.info("--- ANALIZA ZAGROŻEŃ - SENSOR: [{}] ---", sensorId);
         log.info("Prawdopodobieństwo anomalii: {}%", String.format("%.2f", metrics.lastProbability));
 
-        if (metrics.lastProbability > attackThreshold) {
+        double currentThreshold = attackThreshold;
+        boolean attackDetected = metrics.lastProbability > currentThreshold;
+
+        if (attackDetected) {
             log.error("!!! WYKRYTO POWAŻNĄ ANOMALIĘ W SEGMENCIE: [{}] !!!", sensorId);
             incidentService.handleAttackDetection(sensorId, metrics.lastProbability, "ATAK");
-        }
-        else {
+        } else {
             incidentService.endAttack(sensorId);
         }
 
-        baselineService.addObservation(prefix + "SYNS_PER_SEC", s.syns, metrics.zSyn, metrics.lastProbability);
-        baselineService.addObservation(prefix + "ICMPS_PER_SEC", s.icmps, metrics.zIcmp, metrics.lastProbability);
-        baselineService.addObservation(prefix + "AVG_PACKET_SIZE", s.avgPacketSize, metrics.zAvgSize, metrics.lastProbability);
-        baselineService.addObservation(prefix + "TRAFFIC_ASYMMETRY", s.asymmetry, metrics.zAsym, metrics.lastProbability);
-        baselineService.addObservation(prefix + "ACTIVE_FLOWS", s.flows, metrics.zFlows, metrics.lastProbability);
-        baselineService.addObservation(prefix + "GLOBAL_PORT_DIVERSITY", s.portDiversity, metrics.zPortVar, metrics.lastProbability);
-
+        baselineService.addObservation(prefix + "SYNS_PER_SEC", s.syns, metrics.zSyn, attackDetected);
+        baselineService.addObservation(prefix + "ICMPS_PER_SEC", s.icmps, metrics.zIcmp, attackDetected);
+        baselineService.addObservation(prefix + "AVG_PACKET_SIZE", s.avgPacketSize, metrics.zAvgSize, attackDetected);
+        baselineService.addObservation(prefix + "TRAFFIC_VOLUME_BYTES_PER_SEC", s.trafficVolumeBytesPerSecond, metrics.zTrafficVolume, attackDetected);
+        baselineService.addObservation(prefix + "ACTIVE_FLOWS", s.flows, metrics.zFlows, attackDetected);
+        baselineService.addObservation(prefix + "GLOBAL_PORT_DIVERSITY", s.portDiversity, metrics.zPortVar, attackDetected);
         baselineService.recordSensorState(sensorId, metrics.lastProbability);
     }
 
@@ -148,7 +145,7 @@ public class StatisticsAggregator {
             metrics.put("SYNS_PER_SEC", sm.zSyn);
             metrics.put("ICMPS_PER_SEC", sm.zIcmp);
             metrics.put("AVG_PACKET_SIZE", sm.zAvgSize);
-            metrics.put("TRAFFIC_ASYMMETRY", sm.zAsym);
+            metrics.put("TRAFFIC_VOLUME_BYTES_PER_SEC", sm.zTrafficVolume);
             metrics.put("ACTIVE_FLOWS", sm.zFlows);
             metrics.put("GLOBAL_PORT_DIVERSITY", sm.zPortVar);
             metrics.put("anomalyProbability", sm.lastProbability);
@@ -166,10 +163,10 @@ public class StatisticsAggregator {
     }
 
     private record NetworkSnapshot(
-            int syns,
-            int icmps,
+            long syns,
+            long icmps,
             double avgPacketSize,
-            double asymmetry,
+            double trafficVolumeBytesPerSecond,
             int flows,
             int portDiversity
     ) {}

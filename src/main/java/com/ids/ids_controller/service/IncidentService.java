@@ -60,8 +60,20 @@ public class IncidentService {
     public void endAttack(String sensorId) {
         SensorContext context = sensorContexts.get(sensorId);
         if (context != null) {
-            String targetIp = featureExtractor.getDetectedTargetIp(sensorId);
-            List<String> sourceIps = featureExtractor.getDetectedSourceIps(sensorId);
+            FeatureExtractor.IncidentEndpoints endpoints =
+                    featureExtractor.drainIncidentEndpoints(sensorId);
+
+            String targetIp = endpoints.targetIp();
+            List<String> sourceIps = endpoints.sourceIps();
+
+            if (endpoints.sourceIpsTruncated()) {
+                log.warn(
+                        "Przekroczono limit zapisywanych adresów źródłowych dla sensora {}. "
+                                + "Lista incydentu zawiera tylko ostatnie {} adresów.",
+                        sensorId,
+                        sourceIps.size()
+                );
+            }
 
             Incident completedIncident = context.endAttack(targetIp, sourceIps);
             if (completedIncident != null) {

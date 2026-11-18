@@ -112,7 +112,7 @@ public class StatisticsAggregator {
         log.info("Ilość unikalnych portów:   {}, Z: {}", s.portDiversity, metrics.zPortVar);
         log.info("------------------------------------");
 
-        //metrics.lastProbability = fuzzyService.analyze(metrics.zSyn, metrics.zIcmp, metrics.zAvgSize, metrics.zAsym, metrics.zFlows, metrics.zPortVar);
+        metrics.lastProbability = fuzzyService.analyze(metrics.zSyn, metrics.zIcmp, metrics.zAvgSize, metrics.zTrafficVolume, metrics.zFlows, metrics.zPortVar);
 
         log.info("--- ANALIZA ZAGROŻEŃ - SENSOR: [{}] ---", sensorId);
         log.info("Prawdopodobieństwo anomalii: {}%", String.format("%.2f", metrics.lastProbability));

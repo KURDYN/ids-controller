@@ -19,16 +19,17 @@ public class FuzzyService {
 
     public double analyze(double zSyn, double zIcmp, double zAvgSize, double zTrafficVolume, double zFlows, double zPorts) {
         double msi = Math.max(zSyn, zIcmp);
-        if (msi < 0) msi = 0;
+        msi = Math.max(0.0, msi);
+        double pvar = Math.max(0.0, zPorts);
+        double size = Math.abs(zAvgSize);
+        double volume = Math.max(0.0, zTrafficVolume);
+        double flows = Math.max(0.0, zFlows);
+
         fis.setVariable("MSI", msi);
-        if (zPorts < 0) zPorts = 0;
-        fis.setVariable("PVAR", zPorts);
-        zAvgSize = Math.abs(zAvgSize);
-        fis.setVariable("SIZE", zAvgSize);
-        zTrafficVolume = Math.abs(zTrafficVolume);
-        fis.setVariable("VOL", zTrafficVolume);
-        if (zFlows < 0) zFlows = 0;
-        fis.setVariable("FLOWS", zFlows);
+        fis.setVariable("PVAR", pvar);
+        fis.setVariable("SIZE", size);
+        fis.setVariable("VOLUME", volume);
+        fis.setVariable("FLOWS", flows);
 
         fis.evaluate();
 

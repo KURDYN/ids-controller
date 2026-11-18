@@ -28,7 +28,7 @@ public class FuzzyService {
         fis.setVariable("MSI", msi);
         fis.setVariable("PVAR", pvar);
         fis.setVariable("SIZE", size);
-        fis.setVariable("VOLUME", volume);
+        fis.setVariable("VOL", volume);
         fis.setVariable("FLOWS", flows);
 
         fis.evaluate();
